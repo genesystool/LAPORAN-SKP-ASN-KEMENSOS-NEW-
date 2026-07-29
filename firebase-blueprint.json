@@ -1,0 +1,82 @@
+{
+  "entities": {
+    "petugas": {
+      "title": "Petugas",
+      "description": "User accounts and officer details",
+      "properties": {
+        "nip": { "type": "string" },
+        "nama": { "type": "string" },
+        "level": { "type": "string" },
+        "status": { "type": "string" },
+        "foto": { "type": "string" },
+        "scan_ttd": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "rencana_bulanan": {
+      "title": "Rencana Bulanan",
+      "description": "Monthly work plans (RHK Bulanan)",
+      "properties": {
+        "no_rhk": { "type": "number" },
+        "rencana_kerja": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "rencana_harian": {
+      "title": "Rencana Harian",
+      "description": "Daily work plans (RHK Harian)",
+      "properties": {
+        "norhkharian": { "type": "number" },
+        "rencana_harian": { "type": "string" },
+        "rencana_kerja_bulanan_id": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "kegiatan_harian": {
+      "title": "Kegiatan Harian",
+      "description": "Daily activity logs",
+      "properties": {
+        "tanggal": { "type": "string" },
+        "haritglkegiatan": { "type": "string" },
+        "waktu": { "type": "string" },
+        "tempat": { "type": "string" },
+        "desa": { "type": "string" },
+        "rencana_bulanan_id": { "type": "string" },
+        "rencana_harian_id": { "type": "string" },
+        "isi_kegiatan": { "type": "string" },
+        "hasil": { "type": "string" },
+        "foto_kegiatan1": { "type": "array", "items": { "type": "string" } },
+        "petugas_id": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "laporan": {
+      "title": "Laporan Template",
+      "description": "Report narrative templates",
+      "properties": {
+        "nomor_rhk": { "type": "number" },
+        "petugas_id": { "type": "string" },
+        "umum": { "type": "string" },
+        "maksud_tujuan": { "type": "string" },
+        "ruang_lingkup": { "type": "string" },
+        "dasar": { "type": "string" },
+        "kegiatan": { "type": "string" },
+        "hasil_capaian": { "type": "string" },
+        "simpulan": { "type": "string" },
+        "penutup": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "lisensi": {
+      "title": "Lisensi",
+      "description": "User license activations",
+      "properties": {
+        "kode": { "type": "string" },
+        "nip": { "type": "string" },
+        "petugas_id": { "type": "string" },
+        "tanggal_aktivasi": { "type": "string" },
+        "tanggal_kedaluwarsa": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Remix: RHK Generator Online",
+  "description": "Aplikasi Generator RHK dan Laporan Kinerja Harian ASN dengan Firestore Database, Autentikasi Firebase, Generator AI Narasi, dan Cetak Laporan PDF Resmi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
