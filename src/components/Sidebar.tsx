@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   Sparkles,
   FileSearch,
+  BookOpen,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -226,6 +227,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="pt-4 pb-1 px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
           Pengaturan &amp; Informasi
         </div>
+
+        {/* Tutorial Interaktif */}
+        <button
+          onClick={() => onNavigate("tutorial")}
+          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-md transition-colors text-xs font-medium ${
+            currentModule === "tutorial"
+              ? "bg-indigo-900/60 text-white font-semibold border border-indigo-700/50"
+              : "text-slate-300 hover:bg-slate-800 hover:text-white"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className={`w-2 h-2 rounded-full ${currentModule === "tutorial" ? "bg-emerald-400" : "bg-slate-600"}`} />
+            <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold text-emerald-300">Tutorial Interaktif</span>
+          </div>
+          <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 text-[9px] font-bold rounded-md border border-emerald-500/30">
+            BARU
+          </span>
+        </button>
 
         {/* Perubahan Aplikasi / Catatan Rilis */}
         <button
