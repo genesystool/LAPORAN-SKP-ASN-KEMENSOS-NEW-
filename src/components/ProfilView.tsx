@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Petugas, ToastMessage } from "../types";
 import { compressImageFile } from "../lib/imageUtils";
 import { User, Key, Save, Camera, FileCheck, Loader2, Cloud, Link as LinkIcon } from "lucide-react";
@@ -21,11 +21,23 @@ export const ProfilView: React.FC<ProfilViewProps> = ({
   const [tempatDibuat, setTempatDibuat] = useState(currentUser.tempat_dibuat || "Aceh Tamiang");
   const [driveLink, setDriveLink] = useState(
     currentUser.drive_link ||
-      localStorage.getItem(`laporan_skp_drive_link_${currentUser.id}`) ||
-      localStorage.getItem("laporan_skp_shared_drive_link") ||
+      (currentUser.id ? localStorage.getItem(`laporan_skp_drive_link_${currentUser.id}`) : null) ||
       ""
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync state whenever currentUser changes to guarantee privacy per logged-in user
+  useEffect(() => {
+    setNama(currentUser.nama);
+    setFoto(currentUser.foto || "");
+    setScanTtd(currentUser.scan_ttd || "");
+    setTempatDibuat(currentUser.tempat_dibuat || "Aceh Tamiang");
+    const link =
+      currentUser.drive_link ||
+      (currentUser.id ? localStorage.getItem(`laporan_skp_drive_link_${currentUser.id}`) : null) ||
+      "";
+    setDriveLink(link);
+  }, [currentUser.id, currentUser.drive_link, currentUser.nama, currentUser.foto, currentUser.scan_ttd, currentUser.tempat_dibuat]);
 
   const handleFotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -60,22 +72,26 @@ export const ProfilView: React.FC<ProfilViewProps> = ({
 
     setIsSubmitting(true);
     try {
+      const cleanDriveLink = driveLink.trim();
       const payload: Partial<Petugas> = {
         nama: nama.trim(),
         foto,
         scan_ttd: scanTtd,
         tempat_dibuat: tempatDibuat.trim() || "Aceh Tamiang",
-        drive_link: driveLink.trim(),
+        drive_link: cleanDriveLink,
       };
 
       if (password.trim()) {
         payload.password = password.trim();
       }
 
-      // Local storage backup per user
+      // Local storage backup strictly bound to current user ID
       if (currentUser?.id) {
-        localStorage.setItem(`laporan_skp_drive_link_${currentUser.id}`, driveLink.trim());
-        localStorage.setItem("laporan_skp_shared_drive_link", driveLink.trim());
+        if (cleanDriveLink) {
+          localStorage.setItem(`laporan_skp_drive_link_${currentUser.id}`, cleanDriveLink);
+        } else {
+          localStorage.removeItem(`laporan_skp_drive_link_${currentUser.id}`);
+        }
       }
 
       const ok = await onUpdateProfile(payload);
