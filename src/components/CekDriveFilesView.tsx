@@ -21,7 +21,10 @@ import {
   Filter,
   Download,
   CloudUpload,
+  HelpCircle,
+  FileCode,
 } from "lucide-react";
+import { AppsScriptGuideModal } from "./AppsScriptGuideModal";
 import {
   listDriveFiles,
   listDriveFolders,
@@ -41,6 +44,7 @@ interface CekDriveFilesViewProps {
   petugasList: Petugas[];
   addToast: (type: "success" | "error" | "info" | "warning", title: string) => void;
   onNavigate?: (module: string) => void;
+  onSaveAppSettings?: (settings: Partial<AppSettings>) => Promise<boolean>;
 }
 
 export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
@@ -49,9 +53,11 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
   petugasList,
   addToast,
   onNavigate,
+  onSaveAppSettings,
 }) => {
   // Selected Petugas (defaults to current user or first admin option)
   const [selectedPetugasId, setSelectedPetugasId] = useState<string>(currentUser.id || "");
+  const isAdmin = currentUser?.level === "ADMIN";
 
   // Drive target state
   const [customFolderUrl, setCustomFolderUrl] = useState<string>("");
@@ -60,9 +66,23 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
 
   // Auth / Config state
   const [manualToken, setManualToken] = useState<string>(() => getDriveAccessToken() || "");
+  const [showAppsScriptGuideModal, setShowAppsScriptGuideModal] = useState(false);
   const [appsScriptUrl, setAppsScriptUrl] = useState<string>(() => {
-    return localStorage.getItem("laporan_skp_apps_script_url") || "";
+    return (
+      (typeof window !== "undefined" ? localStorage.getItem("laporan_skp_apps_script_url") : "") ||
+      appSettings?.apps_script_url ||
+      ""
+    );
   });
+
+  useEffect(() => {
+    if (appSettings?.apps_script_url) {
+      setAppsScriptUrl((prev) => (prev ? prev : appSettings.apps_script_url || ""));
+      if (typeof window !== "undefined" && appSettings.apps_script_url) {
+        localStorage.setItem("laporan_skp_apps_script_url", appSettings.apps_script_url);
+      }
+    }
+  }, [appSettings?.apps_script_url]);
 
   // Files & Subfolders state
   const [files, setFiles] = useState<DriveFile[]>([]);
@@ -86,8 +106,6 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
       rawLink =
         selectedPetugas?.drive_link ||
         (selectedPetugas?.id ? localStorage.getItem(`laporan_skp_drive_link_${selectedPetugas.id}`) : null) ||
-        localStorage.getItem("laporan_skp_shared_drive_link") ||
-        appSettings?.shared_drive_link ||
         "";
     }
 
@@ -96,11 +114,11 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
     setActiveFolderId(finalFolderId);
 
     if (extractedId) {
-      setActiveFolderName(`Folder (${selectedPetugas.nama || "Petugas"})`);
+      setActiveFolderName(`Folder (${selectedPetugas?.nama || "Petugas"})`);
     } else {
       setActiveFolderName("My Drive Utama (Root)");
     }
-  }, [selectedPetugasId, customFolderUrl, selectedPetugas, appSettings]);
+  }, [selectedPetugasId, customFolderUrl, selectedPetugas?.id, selectedPetugas?.drive_link, selectedPetugas?.nama]);
 
   const [isConnectingOAuth, setIsConnectingOAuth] = useState(false);
 
@@ -192,17 +210,22 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
   }, [activeFolderId]);
 
   // Save Config
-  const handleSaveConfig = () => {
+  const handleSaveConfig = async () => {
     if (manualToken.trim()) {
       setDriveAccessToken(manualToken.trim());
     } else {
       setDriveAccessToken(null);
     }
 
-    if (appsScriptUrl.trim()) {
-      localStorage.setItem("laporan_skp_apps_script_url", appsScriptUrl.trim());
+    const trimmedUrl = appsScriptUrl.trim();
+    if (trimmedUrl) {
+      localStorage.setItem("laporan_skp_apps_script_url", trimmedUrl);
     } else {
       localStorage.removeItem("laporan_skp_apps_script_url");
+    }
+
+    if (onSaveAppSettings) {
+      await onSaveAppSettings({ apps_script_url: trimmedUrl });
     }
 
     setShowConfigModal(false);
@@ -682,17 +705,65 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-800 dark:text-slate-200">
-                  Apps Script Webhook URL (Opsional / Bebas Blokir):
-                </label>
-                <input
-                  type="text"
-                  value={appsScriptUrl}
-                  onChange={(e) => setAppsScriptUrl(e.target.value)}
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl p-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800 dark:text-slate-200">
+                    Apps Script Webhook URL {isAdmin ? "(Khusus Admin)" : "(Pengaturan Sistem)"}:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAppsScriptGuideModal(true)}
+                    className="text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span>Petunjuk & Kode</span>
+                  </button>
+                </div>
+
+                {isAdmin ? (
+                  <input
+                    type="text"
+                    value={appsScriptUrl}
+                    onChange={(e) => setAppsScriptUrl(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl p-3 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                ) : (
+                  <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs font-medium">
+                    {appsScriptUrl.trim() ? (
+                      <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Status Webhook Google Drive: Aktif (Set oleh Admin)</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-bold">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Status Webhook Google Drive: Belum Set oleh Admin</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
+
+              {/* Realtime URL warning if user pasted Vercel or non-Apps Script URL */}
+              {isAdmin && appsScriptUrl.trim() && !appsScriptUrl.includes("script.google.com") && (
+                <div className="p-3 bg-rose-100 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-950 dark:text-rose-200 rounded-2xl text-[11px] space-y-1 animate-in fade-in">
+                  <div className="flex items-start gap-1.5 font-bold text-rose-900 dark:text-rose-300">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <span>Peringatan: URL Webhook Tidak Valid!</span>
+                  </div>
+                  <p className="text-[10.5px] leading-relaxed">
+                    URL <code className="bg-rose-200 dark:bg-rose-900 px-1 py-0.5 rounded font-mono font-bold">{appsScriptUrl}</code> bukan URL Google Apps Script. Jangan masukkan domain Vercel / website.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowAppsScriptGuideModal(true)}
+                    className="mt-1 text-[11px] font-extrabold text-purple-800 dark:text-purple-300 underline flex items-center gap-1 hover:text-purple-950 cursor-pointer"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span>Klik di sini untuk melihat Panduan &amp; Kode Apps Script resmi</span>
+                  </button>
+                </div>
+              )}
 
               <div className="p-3 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-2xl text-[11px] text-purple-900 dark:text-purple-200 leading-relaxed">
                 <p className="font-bold">Tips Koneksi:</p>
@@ -721,6 +792,12 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
           </div>
         </div>
       )}
+      {/* Apps Script Guide Modal */}
+      <AppsScriptGuideModal
+        isOpen={showAppsScriptGuideModal}
+        onClose={() => setShowAppsScriptGuideModal(false)}
+        addToast={addToast}
+      />
     </div>
   );
 };
