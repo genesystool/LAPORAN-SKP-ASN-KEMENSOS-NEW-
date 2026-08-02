@@ -137,9 +137,6 @@ export function cleanDriveFolderId(input?: string | null): string {
  */
 export function getDriveFolderUrl(input?: string | null): string {
   let target = input ? input.trim() : "";
-  if (!target && typeof window !== "undefined") {
-    target = localStorage.getItem("laporan_skp_shared_drive_link") || "";
-  }
   if (!target) return "https://drive.google.com/drive/my-drive";
   if (target === "root") return "https://drive.google.com/drive/my-drive";
   if (target === "shared") return "https://drive.google.com/drive/shared-with-me";
@@ -449,12 +446,28 @@ export async function uploadPdfViaAppsScriptWebhook(
   webhookUrl?: string,
   onProgress?: (percent: number, statusMessage: string) => void
 ): Promise<DriveUploadResult> {
-  const url =
+  let url = (
     webhookUrl ||
-    (typeof window !== "undefined" ? localStorage.getItem("laporan_skp_apps_script_url") : null);
+    (typeof window !== "undefined" ? localStorage.getItem("laporan_skp_apps_script_url") : null) ||
+    ""
+  ).trim();
 
-  if (!url || !url.trim()) {
+  if (!url) {
     throw new Error("URL Webhook Google Apps Script belum dikonfigurasi.");
+  }
+
+  // Normalize protocol
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    url = "https://" + url;
+  }
+
+  // Validate domain - ensure it is a Google Apps Script URL, not a Vercel/website domain
+  if (!url.includes("script.google.com")) {
+    throw new Error(
+      `URL '${url}' BUKAN URL Google Apps Script yang valid!\n\n` +
+      `URL Apps Script harus berawalan 'https://script.google.com/macros/s/.../exec'.\n` +
+      `Mohon tidak memasukkan domain website Vercel (seperti laporanskp.vercel.app). Silakan gunakan URL Web App dari Google Apps Script di Google Drive.`
+    );
   }
 
   onProgress?.(55, "Mengkonversi file PDF ke format data...");
@@ -477,7 +490,7 @@ export async function uploadPdfViaAppsScriptWebhook(
 
   return new Promise<DriveUploadResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", url.trim(), true);
+    xhr.open("POST", url, true);
     xhr.setRequestHeader("Content-Type", "text/plain");
 
     xhr.upload.onprogress = (event) => {
@@ -533,7 +546,9 @@ export async function uploadPdfViaAppsScriptWebhook(
     };
 
     const payload = JSON.stringify({
+      action: "uploadFile",
       filename: fileName,
+      fileName: fileName,
       folderId: targetFolderId,
       fileData: base64Data,
       mimeType: "application/pdf",
