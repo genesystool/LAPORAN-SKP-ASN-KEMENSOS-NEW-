@@ -165,7 +165,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
             Laporan <span className="text-blue-400">SKP</span>
           </h1>
           <p className="text-slate-300 text-sm mt-1 font-medium">
-            Sistem Laporan Kinerja ASN & SKP Online v2.5
+            Sistem Laporan Kinerja ASN & SKP Online v2.6 (Develop By Genesystool)
           </p>
         </div>
 
@@ -340,7 +340,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-6">
-          &copy; 2026 Laporan SKP v2.5 - Firestore Cloud Database
+          &copy; 2026 Laporan SKP - Develop By Genesystool
         </p>
       </div>
     </div>
