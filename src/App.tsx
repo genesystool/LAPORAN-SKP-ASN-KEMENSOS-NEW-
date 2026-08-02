@@ -36,6 +36,7 @@ import { BackupRestoreView } from "./components/BackupRestoreView";
 import { PrintReportView } from "./components/PrintReportView";
 import { ProfilView } from "./components/ProfilView";
 import { CekDriveFilesView } from "./components/CekDriveFilesView";
+import { ChangelogView } from "./components/ChangelogView";
 
 import { CheckCircle2, AlertTriangle, Info, XCircle, X } from "lucide-react";
 
@@ -60,16 +61,34 @@ export default function App() {
   const [currentModule, setCurrentModule] = useState<string>("home");
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
 
-  // Dark Mode State with localStorage persistence
+  // Theme Mode: 'auto' (Otomatis: 06:00-18:00 Terang, 18:00-06:00 Gelap), 'light', or 'dark'
+  const [themeMode, setThemeMode] = useState<"auto" | "light" | "dark">(() => {
+    try {
+      const savedMode = localStorage.getItem("laporan_skp_theme_mode");
+      if (savedMode === "auto" || savedMode === "light" || savedMode === "dark") {
+        return savedMode;
+      }
+      return "auto"; // Default to automatic time-based mode
+    } catch {
+      return "auto";
+    }
+  });
+
+  // Helper to determine if current time is Nighttime (18:00 - 05:59)
+  const getIsNightTime = (): boolean => {
+    const hour = new Date().getHours();
+    return hour >= 18 || hour < 6;
+  };
+
+  // Active dark mode state
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem("laporan_skp_theme");
-      if (saved !== null) {
-        return saved === "dark";
-      }
-      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const savedMode = localStorage.getItem("laporan_skp_theme_mode");
+      if (savedMode === "dark") return true;
+      if (savedMode === "light") return false;
+      return getIsNightTime();
     } catch {
-      return false;
+      return getIsNightTime();
     }
   });
 
@@ -86,6 +105,36 @@ export default function App() {
     }
   });
 
+  // Cleanup old global un-namespaced Drive links to guarantee zero cross-contamination
+  useEffect(() => {
+    try {
+      localStorage.removeItem("laporan_skp_drive_link");
+      localStorage.removeItem("shared_drive_link");
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  // Periodically sync theme with time of day or themeMode changes
+  useEffect(() => {
+    const syncThemeWithTime = () => {
+      if (themeMode === "auto") {
+        const isNight = getIsNightTime();
+        setDarkMode(isNight);
+      } else if (themeMode === "dark") {
+        setDarkMode(true);
+      } else if (themeMode === "light") {
+        setDarkMode(false);
+      }
+    };
+
+    syncThemeWithTime();
+
+    // Check time every 10 seconds to trigger automatic theme change at 06:00 & 18:00
+    const interval = setInterval(syncThemeWithTime, 10000);
+    return () => clearInterval(interval);
+  }, [themeMode]);
+
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add("dark");
@@ -94,7 +143,18 @@ export default function App() {
       document.documentElement.classList.remove("dark");
       localStorage.setItem("laporan_skp_theme", "light");
     }
-  }, [darkMode]);
+    localStorage.setItem("laporan_skp_theme_mode", themeMode);
+  }, [darkMode, themeMode]);
+
+  const handleToggleThemeMode = () => {
+    if (themeMode === "auto") {
+      setThemeMode(darkMode ? "light" : "dark");
+    } else if (themeMode === "dark") {
+      setThemeMode("light");
+    } else {
+      setThemeMode("auto");
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem("laporan_skp_autohide_menu", autoHideMenu ? "true" : "false");
@@ -144,7 +204,7 @@ export default function App() {
 
   // Seed Data and Listen to Firestore Realtime Updates
   useEffect(() => {
-    document.title = "Laporan SKP v2.5";
+    document.title = "Laporan SKP v2.6";
     seedInitialFirestoreData();
 
     const unsubPetugas = onSnapshot(collection(db, "petugas"), (snap) => {
@@ -523,6 +583,7 @@ export default function App() {
         onSaveAppSettings={handleSaveAppSettings}
         onUpdateProfile={handleUpdateProfile}
         onBack={() => setPrintingKegiatan(null)}
+        addToast={addToast}
       />
     );
   }
@@ -533,7 +594,9 @@ export default function App() {
       <Navbar
         currentUser={currentUser}
         darkMode={darkMode}
-        onToggleDarkMode={() => setDarkMode(!darkMode)}
+        themeMode={themeMode}
+        onSetThemeMode={(mode) => setThemeMode(mode)}
+        onToggleDarkMode={handleToggleThemeMode}
         autoHideMenu={autoHideMenu}
         onToggleAutoHideMenu={() => setAutoHideMenu(!autoHideMenu)}
         onLogout={() => setCurrentUser(null)}
@@ -610,6 +673,7 @@ export default function App() {
               petugasList={petugasList}
               addToast={addToast}
               onNavigate={handleNavigate}
+              onSaveAppSettings={handleSaveAppSettings}
             />
           )}
 
@@ -695,6 +759,13 @@ export default function App() {
               lisensiList={lisensiList}
               appSettings={appSettings}
               addToast={addToast}
+            />
+          )}
+
+          {currentModule === "changelog" && (
+            <ChangelogView
+              currentUser={currentUser}
+              onNavigate={handleNavigate}
             />
           )}
 
