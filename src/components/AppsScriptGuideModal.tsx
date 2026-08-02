@@ -19,7 +19,66 @@ interface AppsScriptGuideModalProps {
 
 export const APPS_SCRIPT_CODE = `function doPost(e) {
   try {
-    var data = JSON.parse(e.postData.contents);
+    var data = {};
+    if (e && e.postData && e.postData.contents) {
+      try {
+        data = JSON.parse(e.postData.contents);
+      } catch (pErr) {
+        data = e.parameter || {};
+      }
+    } else if (e && e.parameter) {
+      data = e.parameter;
+    }
+
+    var action = data.action || "uploadFile";
+
+    // Action: List Files inside Folder
+    if (action === "listFiles") {
+      var targetFolderId = data.folderId || "root";
+      var f = (targetFolderId && targetFolderId !== "root" && targetFolderId !== "shared") 
+        ? DriveApp.getFolderById(targetFolderId) 
+        : DriveApp.getRootFolder();
+      var filesIterator = f.getFiles();
+      var filesList = [];
+      while (filesIterator.hasNext()) {
+        var item = filesIterator.next();
+        filesList.push({
+          id: item.getId(),
+          name: item.getName(),
+          mimeType: item.getMimeType(),
+          webViewLink: item.getUrl(),
+          createdTime: item.getDateCreated().toISOString(),
+          size: item.getSize()
+        });
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        files: filesList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Action: List Subfolders inside Folder
+    if (action === "listFolders") {
+      var targetFolderId = data.parentId || "root";
+      var f = (targetFolderId && targetFolderId !== "root" && targetFolderId !== "shared") 
+        ? DriveApp.getFolderById(targetFolderId) 
+        : DriveApp.getRootFolder();
+      var foldersIterator = f.getFolders();
+      var foldersList = [];
+      while (foldersIterator.hasNext()) {
+        var folderItem = foldersIterator.next();
+        foldersList.push({
+          id: folderItem.getId(),
+          name: folderItem.getName()
+        });
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        folders: foldersList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Action: Upload File (Default)
     var fileName = data.filename || data.fileName || "Laporan_SKP.pdf";
     var folderId = data.folderId || "root";
     var base64Data = data.fileData || data.base64Data;
@@ -28,8 +87,12 @@ export const APPS_SCRIPT_CODE = `function doPost(e) {
     if (!base64Data) {
       return ContentService.createTextOutput(JSON.stringify({
         status: "error",
-        message: "File data base64 tidak ditemukan dalam payload request"
+        message: "Data file Base64 tidak ditemukan dalam payload request"
       })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (base64Data.indexOf(",") > -1) {
+      base64Data = base64Data.split(",")[1];
     }
     
     var decoded = Utilities.base64Decode(base64Data);
