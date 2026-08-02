@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Petugas } from "../types";
-import { Menu, LogOut, Settings, Sun, Moon, Eye, EyeOff, Clock } from "lucide-react";
+import { Menu, LogOut, Settings, Sun, Moon, Eye, EyeOff, Clock, BookOpen } from "lucide-react";
 
 interface NavbarProps {
   currentUser: Petugas;
@@ -55,6 +55,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           Connected to Firebase
         </span>
+
+        {/* Tutorial Interaktif Quick Button */}
+        <button
+          onClick={() => onNavigate("tutorial")}
+          className="p-2 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors flex items-center gap-1.5 text-xs font-semibold"
+          title="Buka Tutorial Interaktif & Panduan Penggunaan"
+        >
+          <BookOpen className="w-5 h-5" />
+          <span className="hidden sm:inline">Tutorial</span>
+        </button>
 
         {/* Dark Mode Quick Toggle Button */}
         <button
