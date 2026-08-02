@@ -31,6 +31,11 @@ import {
   Edit3,
   PlusCircle,
   Printer,
+  Info,
+  Server,
+  Code2,
+  Cpu,
+  HardDrive,
 } from "lucide-react";
 
 interface LisensiViewProps {
@@ -61,7 +66,7 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
   const isAdmin = currentUser.level === "ADMIN";
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"user" | "keygen" | "kop" | "fitur">("user");
+  const [activeTab, setActiveTab] = useState<"user" | "keygen" | "kop" | "fitur" | "versi">("user");
 
   const [showContactModal, setShowContactModal] = useState(false);
 
@@ -85,7 +90,6 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
   const [alamatHeader, setAlamatHeader] = useState<string>(
     appSettings.alamat_header || "Jl. Salemba Raya No. 28, Jakarta Pusat / Kantor Wilayah Daerah"
   );
-  const [sharedDriveLink, setSharedDriveLink] = useState<string>(appSettings.shared_drive_link || "");
   const [isSavingKop, setIsSavingKop] = useState(false);
 
   // Feature Permissions State (Admin)
@@ -116,7 +120,6 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
       if (appSettings.instansi_header) setInstansiHeader(appSettings.instansi_header);
       if (appSettings.sub_header) setSubHeader(appSettings.sub_header);
       if (appSettings.alamat_header) setAlamatHeader(appSettings.alamat_header);
-      if (appSettings.shared_drive_link) setSharedDriveLink(appSettings.shared_drive_link);
 
       if (appSettings.feature_permissions) {
         setDisableUserAdd(!!appSettings.feature_permissions.disableUserAdd);
@@ -201,7 +204,6 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
         instansi_header: instansiHeader,
         sub_header: subHeader,
         alamat_header: alamatHeader,
-        shared_drive_link: sharedDriveLink,
       });
       if (ok) {
         addToast("success", "Pengaturan Kop Surat berhasil disimpan & diperbarui untuk semua petugas!");
@@ -292,6 +294,14 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
               }`}
             >
               <Sliders className="w-3.5 h-3.5 text-indigo-600" /> Kontrol Tombol User
+            </button>
+            <button
+              onClick={() => setActiveTab("versi")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === "versi" ? "bg-white text-slate-900 shadow-xs font-bold" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Info className="w-3.5 h-3.5 text-cyan-600" /> Info Versi &amp; Sistem
             </button>
           </div>
         )}
@@ -827,20 +837,13 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
                   />
                 </div>
 
-                <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl space-y-1.5">
-                  <label className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
-                    <Cloud className="w-4 h-4 text-sky-600" />
-                    <span>Link Default Google Drive Instansi (Shared Drive Global):</span>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Cloud className="w-4 h-4 text-emerald-600" />
+                    <span>Link Folder Google Drive Target (Tersimpan Per Akun User):</span>
                   </label>
-                  <input
-                    type="text"
-                    value={sharedDriveLink}
-                    onChange={(e) => setSharedDriveLink(e.target.value)}
-                    placeholder="Paste link: https://drive.google.com/drive/folders/..."
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                  <p className="text-[10px] text-slate-500">
-                    Link ini menjadi lokasi default ekspor Google Drive bagi petugas yang belum menyetel link pribadi di profil mereka.
+                  <p className="text-[11px] text-slate-600">
+                    Lokasi ekspor Google Drive tersimpan secara terisolasi untuk masing-masing user yang login. Setiap petugas/admin dapat mengatur link folder Google Drive miliknya sendiri di menu <strong>Profil Saya</strong> atau pada dialog saat mencetak laporan.
                   </p>
                 </div>
               </div>
@@ -1199,6 +1202,224 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
             </button>
           </div>
         </form>
+      )}
+
+      {/* TAB 5: INFORMASI VERSI & SISTEM (ADMIN ONLY) */}
+      {activeTab === "versi" && isAdmin && (
+        <div className="space-y-6 animate-in fade-in">
+          {/* Main Version Hero Banner */}
+          <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-6 text-white shadow-xl border border-indigo-900/60 relative overflow-hidden">
+            <div className="absolute -right-6 -bottom-6 w-48 h-48 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shrink-0">
+                  SKP
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-extrabold text-white tracking-tight">Laporan SKP Online</h2>
+                    <span className="px-2.5 py-0.5 bg-amber-400 text-slate-950 font-black rounded-full text-[10px] tracking-wide uppercase">
+                      v2.6.0
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Sistem Manajemen Laporan Kinerja ASN &amp; SKP Harian • <span className="text-amber-400 font-semibold">Develop By Genesystool</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 px-4 py-2.5 rounded-xl text-right shrink-0">
+                <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Status Lisensi Admin</p>
+                <p className="text-xs font-bold text-emerald-400 flex items-center justify-end gap-1 mt-0.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" /> Akses Administrator Penuh
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Grid Information Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {/* System Spec Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                  <Cpu className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800">Spesifikasi Engine Aplikasi</h3>
+                  <p className="text-[10px] text-slate-500">Informasi stack &amp; runtime</p>
+                </div>
+              </div>
+
+              <ul className="space-y-2.5 text-xs">
+                <li className="flex justify-between items-center py-1 border-b border-slate-50">
+                  <span className="text-slate-500">Nama Aplikasi:</span>
+                  <span className="font-bold text-slate-800">Laporan SKP Online</span>
+                </li>
+                <li className="flex justify-between items-center py-1 border-b border-slate-50">
+                  <span className="text-slate-500">Versi Rilis:</span>
+                  <span className="font-mono font-bold text-indigo-600">v2.6.0 (FireLink)</span>
+                </li>
+                <li className="flex justify-between items-center py-1 border-b border-slate-50">
+                  <span className="text-slate-500">Frontend Stack:</span>
+                  <span className="font-semibold text-slate-700">React 18 + Vite (TS)</span>
+                </li>
+                <li className="flex justify-between items-center py-1 border-b border-slate-50">
+                  <span className="text-slate-500">Styling Framework:</span>
+                  <span className="font-semibold text-slate-700">Tailwind CSS (Day/Night)</span>
+                </li>
+                <li className="flex justify-between items-center py-1 border-b border-slate-50">
+                  <span className="text-slate-500">Backend Server:</span>
+                  <span className="font-semibold text-slate-700">Express.js Node API</span>
+                </li>
+                <li className="flex justify-between items-center py-1">
+                  <span className="text-slate-500">Database Realtime:</span>
+                  <span className="font-bold text-emerald-600 flex items-center gap-1">
+                    <Cloud className="w-3.5 h-3.5" /> Firebase Firestore
+                  </span>
+                </li>
+              </ul>
+            </div>
+
+            {/* App Statistics Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                <div className="p-2 bg-amber-50 text-amber-600 rounded-lg">
+                  <Server className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800">Statistik Data Sistem</h3>
+                  <p className="text-[10px] text-slate-500">Ringkasan database terdaftar</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                  <p className="text-[10px] text-slate-500 font-medium">Total Petugas</p>
+                  <p className="text-lg font-black text-slate-800 mt-0.5">{petugasList.length}</p>
+                </div>
+                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
+                  <p className="text-[10px] text-emerald-700 font-medium">Lisensi Pro Aktif</p>
+                  <p className="text-lg font-black text-emerald-700 mt-0.5">{lisensiList.length}</p>
+                </div>
+                <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 text-center col-span-2">
+                  <p className="text-[10px] text-indigo-700 font-medium">Kegiatan Harian Pengguna Saat Ini</p>
+                  <p className="text-lg font-black text-indigo-800 mt-0.5">{kegiatanCount} Laporan</p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-100/80 rounded-xl text-[11px] text-slate-600 space-y-1">
+                <p className="font-bold text-slate-800 flex items-center gap-1">
+                  <Lock className="w-3.5 h-3.5 text-amber-600" /> Metode Enkripsi Lisensi:
+                </p>
+                <p className="text-[10px] font-mono text-slate-500">Token Hash NIP: RHKPRO-[NIP_PETUGAS]</p>
+              </div>
+            </div>
+
+            {/* Developer & Contact Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                  <Code2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800">Pengembang &amp; Dukungan</h3>
+                  <p className="text-[10px] text-slate-500">Tim pengembang resmi</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Developer Official</p>
+                  <p className="font-extrabold text-slate-800 text-sm">Genesystool</p>
+                  <p className="text-[11px] text-slate-500">Spesialis Aplikasi Laporan SKP &amp; Kinerja ASN</p>
+                </div>
+
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
+                  <p className="text-[10px] uppercase font-bold text-emerald-700">Layanan Kontak &amp; Support Admin</p>
+                  <p className="font-bold text-emerald-900 text-sm font-mono">085270444156 (WhatsApp)</p>
+                  <a
+                    href="https://wa.me/6285270444156"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[11px] transition-colors shadow-2xs"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" /> Hubungi Genesystool
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Release Notes Feature List */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-xs">
+            <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+              <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-800">Daftar Fitur &amp; Pembaruan Utama Versi 2.6</h3>
+                <p className="text-xs text-slate-500">Rincian modul baru yang ditambahkan pada versi v2.6.0</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-indigo-600" /> Mode Otomatis Siang/Malam
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Otomatis beralih Mode Terang (06:00–18:00) dan Mode Gelap (18:00–06:00) sesuai waktu lokal.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <Cloud className="w-4 h-4 text-sky-600" /> Folder Google Drive per Account
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Penyimpanan link folder target Google Drive terisolasi aman per masing-masing akun petugas/admin.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <Sliders className="w-4 h-4 text-emerald-600" /> Kontrol Tombol Aksi User
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Admin dapat mengunci/membuka tombol Hapus, Edit, Input Baru, Cetak, Drive, dan Salin Template untuk User.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-amber-600" /> Generator Keygen NIP
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Admin dapat secara instan membuat dan mengaktifkan lisensi Pro petugas berbasis NIP.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <Building className="w-4 h-4 text-purple-600" /> Kop Surat Resmi Instansi
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Mendukung Kop Gambar Uploaded dan Kop Teks Resmi Kementerian/Dinas untuk cetakan PDF.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <HardDrive className="w-4 h-4 text-rose-600" /> Backup &amp; Restore JSON
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Dukungan ekspor snapshot penuh database dan impor pemulihan data aplikasi secara aman.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* WhatsApp Contact Modal */}
