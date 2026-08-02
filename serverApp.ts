@@ -3,7 +3,94 @@ import { GoogleGenAI } from "@google/genai";
 
 export const app = express();
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
+
+// Google Drive Apps Script Upload Proxy (Guarantees bypass of browser CORS & hosting restrictions)
+app.post("/api/upload-drive-webhook", async (req, res) => {
+  try {
+    const { webhookUrl, fileName, folderId, base64Data, mimeType } = req.body;
+    if (!webhookUrl || typeof webhookUrl !== "string" || !webhookUrl.trim()) {
+      return res.status(400).json({ error: "URL Webhook Google Apps Script belum diisi." });
+    }
+    if (!base64Data || typeof base64Data !== "string") {
+      return res.status(400).json({ error: "Data file Base64 tidak ditemukan." });
+    }
+
+    let url = webhookUrl.trim();
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      url = "https://" + url;
+    }
+
+    if (!url.includes("script.google.com")) {
+      return res.status(400).json({
+        error: "URL Webhook tidak valid. URL Apps Script harus berawalan 'https://script.google.com/macros/s/.../exec'.",
+      });
+    }
+
+    // Clean base64 string if data URL prefix exists
+    let cleanBase64 = base64Data;
+    if (cleanBase64.indexOf(",") > -1) {
+      cleanBase64 = cleanBase64.split(",")[1];
+    }
+
+    const payload = JSON.stringify({
+      action: "uploadFile",
+      filename: fileName || "Laporan_SKP.pdf",
+      fileName: fileName || "Laporan_SKP.pdf",
+      folderId: folderId || "root",
+      fileData: cleanBase64,
+      mimeType: mimeType || "application/pdf",
+      base64Data: cleanBase64,
+    });
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: payload,
+      redirect: "follow",
+    });
+
+    const text = await response.text();
+    let json: any = {};
+    try {
+      json = JSON.parse(text);
+    } catch {
+      if (
+        text.includes("Google Drive") ||
+        text.includes("doctype html") ||
+        text.includes("<!DOCTYPE")
+      ) {
+        return res.status(502).json({
+          error:
+            "Koneksi Google Apps Script gagal. Pastikan Web App disetel dengan Akses: 'Siapa saja (Anyone)' dan Publikasikan Ulang Versi Baru (New Version).",
+        });
+      }
+      return res.status(502).json({
+        error: "Respon dari Google Apps Script tidak valid. Pastikan URL Webhook benar.",
+      });
+    }
+
+    if (json?.status === "success" || json?.fileUrl || json?.fileId) {
+      return res.json({
+        status: "success",
+        fileId: json.fileId || "webhook-" + Date.now(),
+        fileName: json.fileName || fileName,
+        fileUrl: json.fileUrl,
+      });
+    }
+
+    if (json?.message) {
+      return res.status(400).json({ error: `Google Apps Script Error: ${json.message}` });
+    }
+
+    return res.status(500).json({ error: "Gagal mengunggah file via Webhook Apps Script." });
+  } catch (err: any) {
+    console.error("Upload Drive Webhook Proxy Error:", err);
+    return res.status(500).json({
+      error: err?.message || "Gagal terhubung ke URL Webhook Apps Script. Periksa koneksi internet Anda.",
+    });
+  }
+});
 
 // API Health Check
 app.get("/api/health", (req, res) => {
