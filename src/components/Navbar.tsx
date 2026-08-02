@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { Petugas } from "../types";
-import { Menu, LogOut, Settings, Sun, Moon, Eye, EyeOff } from "lucide-react";
+import { Menu, LogOut, Settings, Sun, Moon, Eye, EyeOff, Clock } from "lucide-react";
 
 interface NavbarProps {
   currentUser: Petugas;
   darkMode: boolean;
+  themeMode: "auto" | "light" | "dark";
+  onSetThemeMode: (mode: "auto" | "light" | "dark") => void;
   onToggleDarkMode: () => void;
   autoHideMenu: boolean;
   onToggleAutoHideMenu: () => void;
@@ -16,6 +18,8 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   darkMode,
+  themeMode,
+  onSetThemeMode,
   onToggleDarkMode,
   autoHideMenu,
   onToggleAutoHideMenu,
@@ -39,8 +43,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           <h1 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest hidden sm:block">
             LAPORAN SKP ONLINE
           </h1>
-          <p className="text-xs text-slate-400 dark:text-slate-500 hidden md:block">
-            Platform: <span className="text-slate-700 dark:text-slate-300 font-semibold">laporan-skp-v2.5</span>
+          <p className="text-xs text-slate-700 dark:text-slate-300 font-semibold hidden md:block">
+            Develop By Genesystool
           </p>
         </div>
       </div>
@@ -55,10 +59,19 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Dark Mode Quick Toggle Button */}
         <button
           onClick={onToggleDarkMode}
-          className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-amber-500 dark:hover:text-amber-400 transition-colors"
-          title={darkMode ? "Beralih ke Mode Terang" : "Beralih ke Mode Gelap"}
+          className="relative p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-amber-500 dark:hover:text-amber-400 transition-colors"
+          title={
+            themeMode === "auto"
+              ? "Mode Otomatis Siang/Malam (06:00-18:00 Terang, 18:00-06:00 Gelap) - Klik untuk ganti"
+              : darkMode
+              ? "Mode Gelap (Manual) - Klik untuk ganti"
+              : "Mode Terang (Manual) - Klik untuk ganti"
+          }
         >
           {darkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
+          {themeMode === "auto" && (
+            <span className="absolute bottom-1 right-1 w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-white dark:ring-slate-900" title="Mode Otomatis Jam Berjalan" />
+          )}
         </button>
 
         {/* Action Button */}
@@ -101,27 +114,75 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {dropdownOpen && (
-            <div className="absolute right-0 mt-2 w-60 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 py-1 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+            <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 py-1 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
               <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
                 <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{currentUser.nama}</p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">{currentUser.nip}</p>
               </div>
 
-              {/* Mode Gelap Option */}
-              <button
-                onClick={() => {
-                  onToggleDarkMode();
-                }}
-                className="w-full text-left px-4 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between"
-              >
-                <span className="flex items-center gap-2">
-                  {darkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-500" />}
-                  <span>Mode Gelap</span>
-                </span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${darkMode ? "bg-amber-500/20 text-amber-400" : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
-                  {darkMode ? "ON" : "OFF"}
-                </span>
-              </button>
+              {/* Theme Selector */}
+              <div className="p-2.5 border-b border-slate-100 dark:border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300 px-1">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Tema Tampilan</span>
+                  </span>
+                  {themeMode === "auto" && (
+                    <span className="text-[9px] bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 px-1.5 py-0.5 rounded-full font-bold">
+                      Auto Siang/Malam
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-[11px]">
+                  <button
+                    onClick={() => onSetThemeMode("auto")}
+                    className={`flex flex-col items-center justify-center py-1.5 rounded-lg font-bold transition-all ${
+                      themeMode === "auto"
+                        ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                    title="Otomatis: 06:00-18:00 Terang, 18:00-06:00 Gelap"
+                  >
+                    <Clock className="w-3.5 h-3.5 mb-0.5 text-indigo-500" />
+                    <span>Auto</span>
+                  </button>
+
+                  <button
+                    onClick={() => onSetThemeMode("light")}
+                    className={`flex flex-col items-center justify-center py-1.5 rounded-lg font-bold transition-all ${
+                      themeMode === "light"
+                        ? "bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                    title="Mode Terang (Siang)"
+                  >
+                    <Sun className="w-3.5 h-3.5 mb-0.5 text-amber-500" />
+                    <span>Terang</span>
+                  </button>
+
+                  <button
+                    onClick={() => onSetThemeMode("dark")}
+                    className={`flex flex-col items-center justify-center py-1.5 rounded-lg font-bold transition-all ${
+                      themeMode === "dark"
+                        ? "bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                    title="Mode Gelap (Malam)"
+                  >
+                    <Moon className="w-3.5 h-3.5 mb-0.5 text-indigo-400" />
+                    <span>Gelap</span>
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 px-1 leading-tight">
+                  {themeMode === "auto"
+                    ? "06:00–18:00 Terang • 18:00–06:00 Gelap"
+                    : themeMode === "light"
+                    ? "Terkunci pada Mode Terang"
+                    : "Terkunci pada Mode Gelap"}
+                </p>
+              </div>
 
               {/* Autohide Menu Option */}
               <button
