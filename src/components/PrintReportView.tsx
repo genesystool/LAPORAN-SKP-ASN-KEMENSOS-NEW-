@@ -39,7 +39,10 @@ import {
   FileCheck,
   Eye,
   FolderSearch,
+  HelpCircle,
+  FileCode,
 } from "lucide-react";
+import { AppsScriptGuideModal } from "./AppsScriptGuideModal";
 // @ts-ignore
 import html2pdf from "html2pdf.js";
 import {
@@ -91,6 +94,7 @@ interface PrintReportViewProps {
   onSaveAppSettings?: (settings: Partial<AppSettings>) => Promise<boolean>;
   onUpdateProfile?: (updated: Partial<Petugas>) => Promise<boolean>;
   onBack: () => void;
+  addToast?: (type: "success" | "error" | "info" | "warning", title: string) => void;
 }
 
 export const PrintReportView: React.FC<PrintReportViewProps> = ({
@@ -104,6 +108,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   onSaveAppSettings,
   onUpdateProfile,
   onBack,
+  addToast = (_type, _title) => {},
 }) => {
   const isAdmin = petugas?.level === "ADMIN";
   const permissions = appSettings?.feature_permissions || {};
@@ -393,30 +398,250 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     }
   };
 
+  // Editable Word Document (.doc) Download handler
+  const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
+
+  const handleDownloadDoc = () => {
+    const element = document.getElementById("report-paper");
+    if (!element) return;
+
+    setIsGeneratingDoc(true);
+    try {
+      const clone = element.cloneNode(true) as HTMLElement;
+
+      // 1. Reset zoom and container styles on clone for Word
+      clone.style.zoom = "1";
+      clone.style.transform = "none";
+      clone.style.width = "100%";
+      clone.style.maxWidth = "680px";
+      clone.style.margin = "0 auto";
+      clone.style.padding = "0";
+
+      // 2. Clean up interactive/print-hidden elements & buttons
+      const unneeded = clone.querySelectorAll(".print\\:hidden, script, .no-print, button");
+      unneeded.forEach((el) => el.remove());
+
+      // 3. Process Kop Surat Image to fit page precisely
+      const kopImg = clone.querySelector('img[alt*="Kop Surat"], img[alt*="Kop"]');
+      if (kopImg) {
+        kopImg.setAttribute("width", "680");
+        (kopImg as HTMLElement).style.cssText =
+          "width: 100%; max-width: 680px; height: auto; max-height: 120px; object-fit: contain; display: block; margin: 0 auto 12px auto;";
+      }
+
+      // 4. Process TTD (Signature) Image
+      const ttdImg = clone.querySelector('img[alt*="TTD"]');
+      if (ttdImg) {
+        ttdImg.setAttribute("width", "160");
+        (ttdImg as HTMLElement).style.cssText =
+          "width: 160px; max-height: 65px; object-fit: contain; display: block;";
+      }
+
+      // 5. Replace Signature Box Flex layout with Word-compatible 2-column table
+      const sigContainers = clone.querySelectorAll('.mt-10.flex, div[class*="mt-10"]');
+      sigContainers.forEach((sigBox) => {
+        const table = document.createElement("table");
+        table.className = "no-border";
+        table.style.cssText =
+          "width: 100%; margin-top: 30px; border: none; border-collapse: collapse; page-break-inside: avoid;";
+
+        const tr = document.createElement("tr");
+        const tdLeft = document.createElement("td");
+        tdLeft.style.cssText = "width: 55%; border: none; padding: 0;";
+
+        const tdRight = document.createElement("td");
+        tdRight.style.cssText =
+          "width: 45%; border: none; padding: 0; text-align: left; font-size: 11pt; font-family: 'Times New Roman', serif;";
+
+        while (sigBox.firstChild) {
+          tdRight.appendChild(sigBox.firstChild);
+        }
+
+        tr.appendChild(tdLeft);
+        tr.appendChild(tdRight);
+        table.appendChild(tr);
+
+        sigBox.parentNode?.replaceChild(table, sigBox);
+      });
+
+      // 6. Process Photo Annex Images & Page Breaks precisely
+      const photoAnnexes = clone.querySelectorAll(
+        '.break-before-page, div[style*="breakBefore"], div[style*="pageBreakBefore"]'
+      );
+      photoAnnexes.forEach((annex) => {
+        (annex as HTMLElement).style.cssText =
+          "page-break-before: always; mso-break-type: section-break; margin-top: 30px; padding-top: 20px;";
+      });
+
+      const photoImgs = clone.querySelectorAll('img[alt*="Dokumentasi"]');
+      photoImgs.forEach((img) => {
+        img.setAttribute("width", "480");
+        img.setAttribute("height", "300");
+        (img as HTMLElement).style.cssText =
+          "width: 480px; max-width: 100%; height: auto; max-height: 300px; object-fit: cover; display: block; margin: 0 auto 10px auto; border: 1px solid #999999; border-radius: 4px;";
+      });
+
+      // 7. Format Tables (Pelaksanaan Kegiatan, Data Tables)
+      const tables = clone.querySelectorAll("table");
+      tables.forEach((tbl) => {
+        if (!tbl.classList.contains("no-border")) {
+          (tbl as HTMLElement).style.cssText =
+            "width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 12px;";
+          const cells = tbl.querySelectorAll("td, th");
+          cells.forEach((cell) => {
+            const el = cell as HTMLElement;
+            if (!el.style.border || el.style.border === "none") {
+              el.style.border = "1px solid #000000";
+            }
+            el.style.padding = "5px 8px";
+            el.style.fontSize = "10.5pt";
+            el.style.fontFamily = "'Times New Roman', serif";
+            el.style.verticalAlign = "top";
+          });
+        }
+      });
+
+      // 8. Ensure Headings & Paragraphs retain Times New Roman & proper spacing in Word
+      const headings = clone.querySelectorAll("h1, h2, h3, h4, h5, h6");
+      headings.forEach((h) => {
+        (h as HTMLElement).style.fontFamily = "'Times New Roman', serif";
+        (h as HTMLElement).style.color = "#000000";
+      });
+
+      const paragraphs = clone.querySelectorAll("p, div, li");
+      paragraphs.forEach((p) => {
+        const el = p as HTMLElement;
+        if (!el.style.fontFamily) {
+          el.style.fontFamily = "'Times New Roman', serif";
+        }
+      });
+
+      const fileNamePdf = getExportFileName();
+      const fileNameDoc = fileNamePdf.replace(/\.pdf$/i, ".doc");
+
+      const innerHtml = clone.innerHTML;
+
+      // HTML Document Structure optimized for Microsoft Word / WPS Office / Google Docs
+      const wordDocumentHtml = `<html xmlns:o='urn:schemas-microsoft-microsoft-com:office:office'
+      xmlns:w='urn:schemas-microsoft-microsoft-com:office:word'
+      xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset="utf-8">
+  <title>Laporan SKP</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![if]-->
+  <style>
+    @page Section1 {
+      size: 210mm 297mm; /* A4 */
+      margin: 15mm 15mm 15mm 15mm;
+      mso-header-margin: 10mm;
+      mso-footer-margin: 10mm;
+      mso-paper-source: 0;
+    }
+    div.Section1 {
+      page: Section1;
+    }
+    body {
+      font-family: 'Times New Roman', 'Arial', serif;
+      font-size: 11pt;
+      line-height: 1.35;
+      color: #000000;
+      background-color: #ffffff;
+      margin: 0;
+      padding: 0;
+    }
+    h1, h2, h3, h4, h5 {
+      font-family: 'Times New Roman', serif;
+      color: #000000;
+      margin-top: 6pt;
+      margin-bottom: 4pt;
+    }
+    p {
+      margin: 0 0 4pt 0;
+      line-height: 1.35;
+    }
+    table {
+      border-collapse: collapse;
+      mso-table-lspace: 0pt;
+      mso-table-rspace: 0pt;
+      width: 100%;
+    }
+    th, td {
+      font-family: 'Times New Roman', serif;
+      font-size: 10.5pt;
+      vertical-align: top;
+    }
+    .no-border, .no-border td, .no-border th {
+      border: none !important;
+    }
+    img {
+      max-width: 100%;
+      height: auto;
+    }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .text-left { text-align: left; }
+    .font-bold { font-weight: bold; }
+    .uppercase { text-transform: uppercase; }
+    .underline { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="Section1" style="width: 100%; max-width: 680px; margin: 0 auto; background-color: #ffffff;">
+    ${innerHtml}
+  </div>
+</body>
+</html>`;
+
+      const blob = new Blob(["\ufeff" + wordDocumentHtml], {
+        type: "application/msword;charset=utf-8",
+      });
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileNameDoc;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      addToast("success", `File Word (.doc) berhasil diunduh: ${fileNameDoc}`);
+    } catch (err) {
+      console.error("Doc Export error:", err);
+      addToast("error", "Gagal mengunduh file laporan format Word (.doc)");
+    } finally {
+      setIsGeneratingDoc(false);
+    }
+  };
+
   // Google Drive Folder Selector & Shared Link State
   const [showDriveModal, setShowDriveModal] = useState(false);
+
+  // Helper function to resolve current officer's private drive link (STRICTLY PRIVATE PER PETUGAS)
+  const getPetugasPrivateDriveLink = (p?: Petugas | null) => {
+    if (!p || !p.id) return "";
+    const fromProfile = p.drive_link ? p.drive_link.trim() : "";
+    const fromLocal = localStorage.getItem(`laporan_skp_drive_link_${p.id}`);
+    return fromProfile || (fromLocal ? fromLocal.trim() : "") || "";
+  };
+
   const [sharedDriveLink, setSharedDriveLink] = useState<string>(() => {
-    return (
-      petugas?.drive_link ||
-      (petugas?.id ? localStorage.getItem(`laporan_skp_drive_link_${petugas.id}`) : null) ||
-      localStorage.getItem("laporan_skp_shared_drive_link") ||
-      appSettings?.shared_drive_link ||
-      ""
-    );
+    return getPetugasPrivateDriveLink(petugas);
   });
 
-  // Keep sharedDriveLink synced with petugas profile and appSettings
+  // Keep sharedDriveLink STRICTLY synced with current petugas profile - MUST NOT bleed across users
   useEffect(() => {
-    const savedLink =
-      petugas?.drive_link ||
-      (petugas?.id ? localStorage.getItem(`laporan_skp_drive_link_${petugas.id}`) : null) ||
-      localStorage.getItem("laporan_skp_shared_drive_link") ||
-      appSettings?.shared_drive_link ||
-      "";
-    if (savedLink) {
-      setSharedDriveLink((prev) => (prev ? prev : savedLink));
-    }
-  }, [petugas, appSettings]);
+    const activeLink = getPetugasPrivateDriveLink(petugas);
+    setSharedDriveLink(activeLink);
+  }, [petugas?.id, petugas?.drive_link]);
 
   // Helper to get target Google Drive folder web URL
   const getDriveFolderUrl = (folderIdOverride?: string) => {
@@ -424,13 +649,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     if (targetId && targetId !== "root" && targetId !== "shared") {
       return `https://drive.google.com/drive/folders/${targetId}`;
     }
-    const savedLink =
-      sharedDriveLink.trim() ||
-      petugas?.drive_link ||
-      (petugas?.id ? localStorage.getItem(`laporan_skp_drive_link_${petugas.id}`) : null) ||
-      localStorage.getItem("laporan_skp_shared_drive_link") ||
-      appSettings?.shared_drive_link ||
-      "";
+    const savedLink = sharedDriveLink.trim() || getPetugasPrivateDriveLink(petugas);
 
     if (savedLink) {
       if (savedLink.startsWith("http://") || savedLink.startsWith("https://")) {
@@ -450,12 +669,26 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   };
 
   const [appsScriptUrl, setAppsScriptUrl] = useState<string>(() => {
-    return (typeof window !== "undefined" ? localStorage.getItem("laporan_skp_apps_script_url") : "") || "";
+    return (
+      (typeof window !== "undefined" ? localStorage.getItem("laporan_skp_apps_script_url") : "") ||
+      appSettings?.apps_script_url ||
+      ""
+    );
   });
   const [isAppsScriptSaved, setIsAppsScriptSaved] = useState(false);
   const [showAppsScriptCode, setShowAppsScriptCode] = useState(false);
+  const [showAppsScriptGuideModal, setShowAppsScriptGuideModal] = useState(false);
 
-  const handleSaveAppsScriptUrl = (url: string) => {
+  useEffect(() => {
+    if (appSettings?.apps_script_url) {
+      setAppsScriptUrl((prev) => (prev ? prev : appSettings.apps_script_url || ""));
+      if (typeof window !== "undefined" && appSettings.apps_script_url) {
+        localStorage.setItem("laporan_skp_apps_script_url", appSettings.apps_script_url);
+      }
+    }
+  }, [appSettings?.apps_script_url]);
+
+  const handleSaveAppsScriptUrl = async (url: string) => {
     const trimmed = url.trim();
     setAppsScriptUrl(trimmed);
     if (typeof window !== "undefined") {
@@ -464,6 +697,9 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       } else {
         localStorage.removeItem("laporan_skp_apps_script_url");
       }
+    }
+    if (onSaveAppSettings) {
+      await onSaveAppSettings({ apps_script_url: trimmed });
     }
     setIsAppsScriptSaved(true);
     setTimeout(() => setIsAppsScriptSaved(false), 3000);
@@ -525,13 +761,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   const getTargetDriveFolderId = () => {
     let targetFolderId = currentFolder?.id || "root";
     if (targetFolderId === "root" || targetFolderId === "shared") {
-      const savedLink =
-        sharedDriveLink.trim() ||
-        petugas?.drive_link ||
-        (petugas?.id ? localStorage.getItem(`laporan_skp_drive_link_${petugas.id}`) : null) ||
-        localStorage.getItem("laporan_skp_shared_drive_link") ||
-        appSettings?.shared_drive_link ||
-        "";
+      const savedLink = sharedDriveLink.trim() || getPetugasPrivateDriveLink(petugas);
       const extractedId = savedLink ? extractDriveFolderId(savedLink) : null;
       if (extractedId) targetFolderId = extractedId;
     }
@@ -626,7 +856,6 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
         onUpdateProfile({ drive_link: linkToUse });
       }
     }
-    localStorage.setItem("laporan_skp_shared_drive_link", linkToUse);
     setSharedDriveLink(linkToUse);
 
     try {
@@ -661,13 +890,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           message: "Token Berhasil Diperoleh & Tersimpan Otomatis!",
         });
 
-        const savedLink =
-          sharedDriveLink.trim() ||
-          petugas?.drive_link ||
-          (petugas?.id ? localStorage.getItem(`laporan_skp_drive_link_${petugas.id}`) : null) ||
-          localStorage.getItem("laporan_skp_shared_drive_link") ||
-          appSettings?.shared_drive_link ||
-          "";
+        const savedLink = sharedDriveLink.trim() || getPetugasPrivateDriveLink(petugas);
         if (savedLink) {
           setSharedDriveLink(savedLink);
         }
@@ -695,17 +918,8 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     setDriveSearchQuery("");
     setDriveUploadError(null);
 
-    const savedLink =
-      sharedDriveLink.trim() ||
-      petugas?.drive_link ||
-      (petugas?.id ? localStorage.getItem(`laporan_skp_drive_link_${petugas.id}`) : null) ||
-      localStorage.getItem("laporan_skp_shared_drive_link") ||
-      appSettings?.shared_drive_link ||
-      "";
-
-    if (savedLink && savedLink !== sharedDriveLink) {
-      setSharedDriveLink(savedLink);
-    }
+    const savedLink = getPetugasPrivateDriveLink(petugas);
+    setSharedDriveLink(savedLink);
 
     const extractedId = savedLink ? extractDriveFolderId(savedLink) : null;
     if (extractedId) {
@@ -816,13 +1030,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
 
     let targetFolderId = currentFolder.id;
     if (targetFolderId === "root" || targetFolderId === "shared") {
-      const savedLink =
-        sharedDriveLink.trim() ||
-        petugas?.drive_link ||
-        (petugas?.id ? localStorage.getItem(`laporan_skp_drive_link_${petugas.id}`) : null) ||
-        localStorage.getItem("laporan_skp_shared_drive_link") ||
-        appSettings?.shared_drive_link ||
-        "";
+      const savedLink = sharedDriveLink.trim() || getPetugasPrivateDriveLink(petugas);
       const extractedId = savedLink ? extractDriveFolderId(savedLink) : null;
       if (extractedId) targetFolderId = extractedId;
     }
@@ -867,6 +1075,8 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
 
     // Stage 2: Direct API / Webhook upload if credentials exist
     let backgroundUploadResult = null;
+    let uploadErrorMsg: string | null = null;
+
     if (pdfBlob && (token || webhookUrl)) {
       try {
         setUploadProgress(60);
@@ -884,29 +1094,34 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
         );
       } catch (bgErr: any) {
         console.warn("Direct upload notice:", bgErr);
-        setDriveUploadError(bgErr?.message || "Gagal mengunggah file ke Google Drive.");
+        uploadErrorMsg = bgErr?.message || "Gagal mengunggah file ke Google Drive.";
+        setDriveUploadError(uploadErrorMsg);
       }
     } else {
-      setDriveUploadError(
-        "Token Google Drive atau Webhook Apps Script belum diisi. Silakan isi URL Webhook Apps Script atau Login Google Drive."
-      );
+      uploadErrorMsg =
+        "Token Google Drive atau Webhook Apps Script belum diisi. Silakan isi URL Webhook Apps Script atau Login Google Drive.";
+      setDriveUploadError(uploadErrorMsg);
     }
 
-    setUploadProgress(100);
-    setUploadStatusMessage("Upload Berhasil Selesai!");
-
-    // Smooth delay so user can observe 100% completion status
-    await new Promise((res) => setTimeout(res, 600));
-
-    // Resolve web link & display inside application modal
-    const finalDriveUrl = backgroundUploadResult?.webViewLink || targetFolderUrl;
-
     if (backgroundUploadResult) {
+      setUploadProgress(100);
+      setUploadStatusMessage("Upload Berhasil Selesai!");
+      await new Promise((res) => setTimeout(res, 600));
+
+      const finalDriveUrl = backgroundUploadResult?.webViewLink || targetFolderUrl;
       setDriveUploadSuccess({
         id: backgroundUploadResult?.id || "direct-export-" + Date.now(),
         name: fileName,
         webViewLink: finalDriveUrl,
       });
+      setShowDriveModal(true);
+      addToast("success", "File PDF berhasil tersimpan di Google Drive!");
+    } else {
+      setUploadProgress(100);
+      setUploadStatusMessage("Gagal Upload ke Google Drive");
+      await new Promise((res) => setTimeout(res, 400));
+      const failMsg = uploadErrorMsg || "Gagal mengunggah file ke Google Drive.";
+      addToast("error", failMsg);
       setShowDriveModal(true);
     }
 
@@ -945,8 +1160,9 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
 
             <button
               onClick={handleDownloadPdf}
-              disabled={isGeneratingPdf || isUploadingDrive}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-colors"
+              disabled={isGeneratingPdf || isGeneratingDoc || isUploadingDrive}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-colors cursor-pointer"
+              title="Unduh Laporan dalam format PDF"
             >
               {isGeneratingPdf ? (
                 <>
@@ -955,6 +1171,23 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
               ) : (
                 <>
                   <Download className="w-4 h-4" /> Download PDF
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleDownloadDoc}
+              disabled={isGeneratingPdf || isGeneratingDoc || isUploadingDrive}
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-colors cursor-pointer"
+              title="Unduh Laporan Format Word (.doc) yang dapat diedit di MS Word / Google Docs"
+            >
+              {isGeneratingDoc ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Memproses .DOC...
+                </>
+              ) : (
+                <>
+                  <FileText className="w-4 h-4" /> Download .DOC (Editable)
                 </>
               )}
             </button>
@@ -1499,10 +1732,28 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                     <button
                       type="button"
                       onClick={handleDownloadAndOpenDrive}
-                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors"
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Unduh PDF Langsung</span>
+                      <span>Unduh PDF Langsung Ke Komputer</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadDoc}
+                      className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Unduh .DOC (Editable Word)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowAppsScriptGuideModal(true)}
+                      className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      <span>Lihat Panduan & Kode Apps Script</span>
                     </button>
                   </div>
                 </div>
@@ -1556,6 +1807,78 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                   <div className="flex items-center justify-between text-[11px] text-slate-600 pt-0.5">
                     <span>Folder ID: <code className="bg-sky-100 text-sky-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">{extractDriveFolderId(sharedDriveLink) || "root"}</code></span>
                   </div>
+                </div>
+
+                {/* Section 1B: Apps Script Webhook URL Config (Admin Only Edit) */}
+                <div className="p-4 bg-purple-50/90 border border-purple-200 rounded-2xl space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                      <FileCode className="w-4 h-4 text-purple-600" />
+                      <span>Apps Script Webhook URL {isAdmin ? "(Khusus Admin)" : "(Pengaturan Sistem)"}:</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowAppsScriptGuideModal(true)}
+                      className="text-[11px] font-bold text-purple-700 hover:text-purple-900 underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      <span>Petunjuk & Kode</span>
+                    </button>
+                  </div>
+
+                  {isAdmin ? (
+                    <>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={appsScriptUrl}
+                          onChange={(e) => handleSaveAppsScriptUrl(e.target.value)}
+                          placeholder="https://script.google.com/macros/s/.../exec"
+                          className="flex-1 bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
+                        />
+                        {isAppsScriptSaved && (
+                          <span className="px-3 py-2 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-1 animate-in fade-in shrink-0">
+                            <Check className="w-3.5 h-3.5" /> Tersimpan
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Realtime URL warning if user pasted Vercel or non-Apps Script URL */}
+                      {appsScriptUrl.trim() && !appsScriptUrl.includes("script.google.com") && (
+                        <div className="p-2.5 bg-rose-100 border border-rose-300 text-rose-950 rounded-xl text-[11px] space-y-1 animate-in fade-in">
+                          <div className="flex items-start gap-1.5 font-bold text-rose-900">
+                            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                            <span>Peringatan: URL Webhook Tidak Valid!</span>
+                          </div>
+                          <p className="text-[10.5px] leading-relaxed text-rose-900">
+                            URL <code className="bg-rose-200 text-rose-950 px-1 py-0.5 rounded font-mono font-bold">{appsScriptUrl}</code> bukan URL Google Apps Script. Jangan masukkan domain Vercel / website.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setShowAppsScriptGuideModal(true)}
+                            className="mt-1 text-[11px] font-extrabold text-purple-800 underline flex items-center gap-1 hover:text-purple-950 cursor-pointer"
+                          >
+                            <HelpCircle className="w-3.5 h-3.5" />
+                            <span>Klik di sini untuk melihat Panduan &amp; Kode Apps Script yang benar</span>
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-purple-100 text-xs">
+                      {appsScriptUrl.trim() ? (
+                        <div className="flex items-center gap-2 text-emerald-700 font-bold">
+                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>Status Webhook Google Drive: Aktif (Dikonfigurasi oleh Admin)</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-amber-700 font-bold">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Status Webhook Google Drive: Belum Set oleh Admin</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Section 2: Directory Tree View Component matching screenshot */}
@@ -1908,6 +2231,12 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           </div>
         </div>
       )}
+      {/* Apps Script Guide & Code Modal */}
+      <AppsScriptGuideModal
+        isOpen={showAppsScriptGuideModal}
+        onClose={() => setShowAppsScriptGuideModal(false)}
+        addToast={addToast}
+      />
     </div>
   );
 };
