@@ -284,15 +284,15 @@ export async function listDriveFolders(
       const err = await response.text();
       if (response.status === 401) {
         setDriveAccessToken(null);
-        console.warn("Drive API Error (Folders): 401 Unauthorized");
-        throw new Error("Token Akses Google Drive kadaluarsa. Silakan klik Sambungkan untuk login ulang.");
+        console.warn("Drive API Notice (Folders): 401 Unauthorized - Expired token cleared.");
+        return [];
       }
       if (response.status === 403 || response.status === 404) {
-        console.warn(`Drive API Error (Folders): ${response.status} - Folder not accessible`);
+        console.warn(`Drive API Notice (Folders): ${response.status} - Folder not accessible`);
       } else {
         console.error("Drive API Error (Folders):", response.status, err);
       }
-      throw new Error(`Google Drive API error: ${response.status}`);
+      return [];
     }
 
     const data = await response.json();
@@ -358,15 +358,15 @@ export async function listDriveFiles(
       const err = await response.text();
       if (response.status === 401) {
         setDriveAccessToken(null);
-        console.warn("Drive API Error (Files): 401 Unauthorized");
-        throw new Error("Token Akses Google Drive kadaluarsa. Silakan klik Sambungkan untuk login ulang.");
+        console.warn("Drive API Notice (Files): 401 Unauthorized - Expired token cleared.");
+        return [];
       }
       if (response.status === 403 || response.status === 404) {
-        console.warn(`Drive API Error (Files): ${response.status} - Folder not accessible`);
+        console.warn(`Drive API Notice (Files): ${response.status} - Folder not accessible`);
       } else {
         console.error("Drive API Error (Files):", response.status, err);
       }
-      throw new Error(`Google Drive API error: ${response.status}`);
+      return [];
     }
 
     const data = await response.json();
@@ -488,75 +488,95 @@ export async function uploadPdfViaAppsScriptWebhook(
 
   onProgress?.(65, "Mengirim file ke Google Apps Script Webhook...");
 
-  return new Promise<DriveUploadResult>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", url, true);
-    xhr.setRequestHeader("Content-Type", "text/plain");
+  const payload = JSON.stringify({
+    action: "uploadFile",
+    filename: fileName,
+    fileName: fileName,
+    folderId: targetFolderId,
+    fileData: base64Data,
+    mimeType: "application/pdf",
+    base64Data: base64Data,
+  });
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && event.total > 0) {
-        // Map upload payload progress to 65% -> 92%
-        const uploadPct = Math.round((event.loaded / event.total) * 100);
-        const overallPct = 65 + Math.round((event.loaded / event.total) * 27);
-        onProgress?.(overallPct, `Mengunggah data file (${uploadPct}%)...`);
-      }
-    };
-
-    xhr.onload = () => {
-      onProgress?.(95, "Memproses respon dari Google Drive...");
-      const responseText = xhr.responseText;
-      let json: any = {};
-      try {
-        json = JSON.parse(responseText);
-      } catch {
-        if (
-          responseText.includes("Google Drive") ||
-          responseText.includes("doctype html") ||
-          responseText.includes("<!DOCTYPE")
-        ) {
-          return reject(
-            new Error(
-              "Koneksi Google Apps Script gagal. Pastikan Web App disetel dengan Akses: 'Siapa saja (Anyone)' dan Publikasikan Ulang Versi Baru (New Version)."
-            )
-          );
-        }
-        return reject(
-          new Error("Respon dari Google Apps Script tidak valid. Pastikan URL Webhook benar.")
-        );
-      }
-
-      if (json?.status === "success" || json?.fileUrl || json?.fileId) {
-        onProgress?.(100, "Upload berhasil!");
-        return resolve({
-          id: json.fileId || "webhook-" + Date.now(),
-          name: json.fileName || fileName,
-          webViewLink: json.fileUrl || getDriveFolderUrl(targetFolderId),
-        });
-      }
-
-      if (json?.message) {
-        return reject(new Error(`Google Apps Script Error: ${json.message}`));
-      }
-
-      reject(new Error("Gagal mengunggah file via Webhook Apps Script."));
-    };
-
-    xhr.onerror = () => {
-      reject(new Error("Gagal terhubung ke URL Webhook Apps Script. Periksa koneksi internet Anda."));
-    };
-
-    const payload = JSON.stringify({
-      action: "uploadFile",
-      filename: fileName,
-      fileName: fileName,
-      folderId: targetFolderId,
-      fileData: base64Data,
-      mimeType: "application/pdf",
-      base64Data: base64Data
+  // Attempt 1: Direct client-side fetch (supports 302 redirects cleanly)
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: payload,
+      redirect: "follow",
     });
 
-    xhr.send(payload);
-  });
+    const responseText = await res.text();
+    let json: any = {};
+    try {
+      json = JSON.parse(responseText);
+    } catch {
+      // If client fetch returned non-JSON HTML (like Google login/error), throws to try proxy or give error
+      if (
+        responseText.includes("Google Drive") ||
+        responseText.includes("doctype html") ||
+        responseText.includes("<!DOCTYPE")
+      ) {
+        throw new Error(
+          "Koneksi Google Apps Script gagal. Pastikan Web App disetel dengan Akses: 'Siapa saja (Anyone)' dan Publikasikan Ulang Versi Baru (New Version)."
+        );
+      }
+    }
+
+    if (json?.status === "success" || json?.fileUrl || json?.fileId) {
+      onProgress?.(100, "Upload berhasil!");
+      return {
+        id: json.fileId || "webhook-" + Date.now(),
+        name: json.fileName || fileName,
+        webViewLink: json.fileUrl || getDriveFolderUrl(targetFolderId),
+      };
+    }
+
+    if (json?.message) {
+      throw new Error(`Google Apps Script Error: ${json.message}`);
+    }
+  } catch (clientErr: any) {
+    console.warn("Direct client fetch to Webhook failed, attempting backend server proxy fallback...", clientErr);
+    
+    // Attempt 2: Server-side proxy fallback (Bypasses all client browser CORS & hosting restrictions)
+    try {
+      onProgress?.(80, "Menggunakan server proxy untuk mengunggah...");
+      const proxyRes = await fetch("/api/upload-drive-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhookUrl: url,
+          fileName: fileName,
+          folderId: targetFolderId,
+          base64Data: base64Data,
+          mimeType: "application/pdf",
+        }),
+      });
+
+      const proxyJson = await proxyRes.json();
+      if (proxyRes.ok && (proxyJson.status === "success" || proxyJson.fileUrl || proxyJson.fileId)) {
+        onProgress?.(100, "Upload berhasil via Proxy!");
+        return {
+          id: proxyJson.fileId || "webhook-" + Date.now(),
+          name: proxyJson.fileName || fileName,
+          webViewLink: proxyJson.fileUrl || getDriveFolderUrl(targetFolderId),
+        };
+      }
+
+      if (proxyJson?.error) {
+        throw new Error(proxyJson.error);
+      }
+    } catch (proxyErr: any) {
+      console.error("Proxy upload fallback failed:", proxyErr);
+      // Re-throw initial client error if proxy also fails or is unavailable
+      throw new Error(
+        proxyErr?.message || clientErr?.message || "Gagal mengunggah file via Webhook Apps Script."
+      );
+    }
+  }
+
+  throw new Error("Gagal mengunggah file via Webhook Apps Script.");
 }
 
 /**
