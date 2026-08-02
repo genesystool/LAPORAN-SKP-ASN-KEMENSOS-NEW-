@@ -37,6 +37,8 @@ import { PrintReportView } from "./components/PrintReportView";
 import { ProfilView } from "./components/ProfilView";
 import { CekDriveFilesView } from "./components/CekDriveFilesView";
 import { ChangelogView } from "./components/ChangelogView";
+import { InteractiveTutorialView } from "./components/InteractiveTutorialView";
+import { OnboardingTourModal } from "./components/OnboardingTourModal";
 
 import { CheckCircle2, AlertTriangle, Info, XCircle, X } from "lucide-react";
 
@@ -60,6 +62,25 @@ export default function App() {
 
   const [currentModule, setCurrentModule] = useState<string>("home");
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
+  const [showOnboardingTour, setShowOnboardingTour] = useState(false);
+
+  // Trigger Onboarding Tour for new logins
+  useEffect(() => {
+    if (currentUser) {
+      try {
+        const completed = localStorage.getItem(`skp_tutorial_completed_${currentUser.id}`);
+        if (!completed) {
+          // Open tour automatically for newly logged in user
+          const timer = setTimeout(() => {
+            setShowOnboardingTour(true);
+          }, 800);
+          return () => clearTimeout(timer);
+        }
+      } catch {
+        // Ignore
+      }
+    }
+  }, [currentUser]);
 
   // Theme Mode: 'auto' (Otomatis: 06:00-18:00 Terang, 18:00-06:00 Gelap), 'light', or 'dark'
   const [themeMode, setThemeMode] = useState<"auto" | "light" | "dark">(() => {
@@ -776,8 +797,26 @@ export default function App() {
               addToast={addToast}
             />
           )}
+
+          {currentModule === "tutorial" && (
+            <InteractiveTutorialView
+              currentUser={currentUser}
+              appSettings={appSettings}
+              onNavigate={handleNavigate}
+              onStartTour={() => setShowOnboardingTour(true)}
+              addToast={addToast}
+            />
+          )}
         </main>
       </div>
+
+      {/* Onboarding Tour Modal Overlay */}
+      <OnboardingTourModal
+        isOpen={showOnboardingTour}
+        onClose={() => setShowOnboardingTour(false)}
+        currentUser={currentUser}
+        onNavigate={handleNavigate}
+      />
 
       {/* Floating Toast Alerts */}
       <div className="fixed top-4 right-4 z-[99999] space-y-2 max-w-sm pointer-events-none">
