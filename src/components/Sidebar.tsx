@@ -66,7 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             Laporan SKP
           </span>
           <span className="text-[10px] text-amber-400 font-mono uppercase tracking-wider block">
-            Versi 2.5 Online
+            Versi 2.6 Online
           </span>
         </div>
       </div>
@@ -224,8 +224,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Section Header */}
         <div className="pt-4 pb-1 px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-          Pengaturan
+          Pengaturan &amp; Informasi
         </div>
+
+        {/* Perubahan Aplikasi / Catatan Rilis */}
+        <button
+          onClick={() => onNavigate("changelog")}
+          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-md transition-colors text-xs font-medium ${
+            currentModule === "changelog"
+              ? "bg-slate-800 text-white font-semibold"
+              : "text-slate-300 hover:bg-slate-800 hover:text-white"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className={`w-2 h-2 rounded-full ${currentModule === "changelog" ? "bg-amber-500" : "bg-slate-600"}`} />
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Perubahan Aplikasi</span>
+          </div>
+          <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[9px] font-mono font-bold rounded-md border border-amber-500/30">
+            v2.6
+          </span>
+        </button>
 
         {/* Backup & Restore Data (Admin Only) */}
         {isAdmin && (
@@ -273,7 +292,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="p-4 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-between">
         <span>FireLink Sync</span>
-        <span className="font-mono text-[10px] text-amber-400">v2.5</span>
+        <span className="font-mono text-[10px] text-amber-400">v2.6</span>
       </div>
     </aside>
     </>
