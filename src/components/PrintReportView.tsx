@@ -41,6 +41,8 @@ import {
   FolderSearch,
   HelpCircle,
   FileCode,
+  Save,
+  Trash2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -51,8 +53,16 @@ import * as pdfjsLib from "pdfjs-dist";
 // @ts-ignore
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
-// Set pdfjs worker URL using bundled Vite url
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+// Set pdfjs worker URL using bundled Vite url or cdnjs fallback
+if (typeof window !== "undefined") {
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      pdfWorker ||
+      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || "3.11.174"}/pdf.worker.min.js`;
+  } catch (err) {
+    console.warn("Could not set pdfjs workerSrc:", err);
+  }
+}
 import {
   uploadPdfToDrive,
   listDriveFolders,
@@ -404,31 +414,58 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
 
     try {
       const arrayBuffer = await html2pdf().set(opt).from(element).output("arraybuffer");
-      if (!arrayBuffer) return [];
+      if (!arrayBuffer) throw new Error("Gagal mengompresi PDF.");
 
-      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-      const pdf = await loadingTask.promise;
+      const parsePdfTask = async () => {
+        const loadingTask = pdfjsLib.getDocument({
+          data: new Uint8Array(arrayBuffer),
+          cMapPacked: true,
+        });
+        const pdf = await loadingTask.promise;
+        const pageImages: string[] = [];
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const viewport = page.getViewport({ scale: 1.8 });
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d");
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
 
-      const pageImages: string[] = [];
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 1.8 });
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-
-        if (context) {
-          await page.render({
-            canvasContext: context,
-            viewport: viewport,
-          }).promise;
-          pageImages.push(canvas.toDataURL("image/png"));
+          if (context) {
+            await page.render({
+              canvasContext: context,
+              viewport: viewport,
+            }).promise;
+            pageImages.push(canvas.toDataURL("image/png"));
+          }
         }
-      }
-      return pageImages;
+        return pageImages;
+      };
+
+      const timeoutPromise = new Promise<string[]>((_, reject) =>
+        setTimeout(() => reject(new Error("PDFJS Worker Timeout")), 7000)
+      );
+
+      return await Promise.race([parsePdfTask(), timeoutPromise]);
     } catch (err) {
-      console.error("Error rendering PDF pages for viewer:", err);
+      console.warn("pdfjsLib parsing failed/timed out, falling back to direct canvas capture:", err);
+      try {
+        const html2canvas = (await import("html2canvas")).default;
+        const canvas = await html2canvas(element, {
+          scale: 1.8,
+          useCORS: true,
+          logging: false,
+          backgroundColor: "#ffffff",
+          onclone: (clonedDoc: Document) => {
+            sanitizeCanvasForExport(clonedDoc);
+          },
+        });
+        if (canvas) {
+          return [canvas.toDataURL("image/png")];
+        }
+      } catch (fallbackErr) {
+        console.error("Direct canvas fallback failed:", fallbackErr);
+      }
       return [];
     }
   };
@@ -790,10 +827,14 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   const [showAppsScriptGuideModal, setShowAppsScriptGuideModal] = useState(false);
 
   useEffect(() => {
-    if (appSettings?.apps_script_url) {
-      setAppsScriptUrl((prev) => (prev ? prev : appSettings.apps_script_url || ""));
-      if (typeof window !== "undefined" && appSettings.apps_script_url) {
-        localStorage.setItem("laporan_skp_apps_script_url", appSettings.apps_script_url);
+    if (appSettings?.apps_script_url !== undefined) {
+      setAppsScriptUrl(appSettings.apps_script_url || "");
+      if (typeof window !== "undefined") {
+        if (appSettings.apps_script_url) {
+          localStorage.setItem("laporan_skp_apps_script_url", appSettings.apps_script_url);
+        } else {
+          localStorage.removeItem("laporan_skp_apps_script_url");
+        }
       }
     }
   }, [appSettings?.apps_script_url]);
@@ -1027,21 +1068,25 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     setShowDriveModal(true);
     setDriveSearchQuery("");
     setDriveUploadError(null);
+    setIsUploadingDrive(false);
+    setIsGeneratingPdf(false);
 
     const savedLink = getPetugasPrivateDriveLink(petugas);
     setSharedDriveLink(savedLink);
 
     const extractedId = savedLink ? extractDriveFolderId(savedLink) : null;
     if (extractedId) {
-      try {
-        const details = await getDriveFolderDetails(extractedId, manualToken || undefined);
-        const folderName = details?.name && details.name !== "Folder Target Drive" ? details.name : "Folder Target";
-        setDriveFolderStack([{ id: extractedId, name: folderName }]);
-      } catch {
-        setDriveFolderStack([{ id: extractedId, name: "Folder Target" }]);
-      }
+      setDriveFolderStack([{ id: extractedId, name: "Folder Target" }]);
       fetchFolders(extractedId, "", false);
       handleLoadFolderFiles(extractedId);
+
+      getDriveFolderDetails(extractedId, manualToken || undefined)
+        .then((details) => {
+          if (details?.name && details.name !== "Folder Target Drive") {
+            setDriveFolderStack([{ id: extractedId, name: details.name }]);
+          }
+        })
+        .catch(() => {});
     } else {
       setDriveFolderStack([{ id: "root", name: "Drive Utama (Root)" }]);
       fetchFolders("root", "", false);
@@ -1110,133 +1155,139 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     setDriveUploadSuccess(null);
     setDriveUploadError(null);
 
-    const fileName = getExportFileName();
-    setUploadFileName(fileName);
-
-    let pdfMargin: [number, number, number, number] = [14.73, 15, 12, 15];
-    if (marginPreset === "compact") pdfMargin = [14.73, 8, 8, 8];
-    if (marginPreset === "wide") pdfMargin = [14.73, 20, 18, 20];
-
-    let pdfFormat: string | [number, number] = "a4";
-    if (paperSize === "letter") pdfFormat = "letter";
-    if (paperSize === "folio") pdfFormat = [215, 330];
-
-    const opt = {
-      margin: pdfMargin,
-      filename: fileName,
-      image: { type: "jpeg" as const, quality: 0.98 },
-      html2canvas: {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-        onclone: (clonedDoc: Document) => {
-          sanitizeCanvasForExport(clonedDoc);
-        },
-      },
-      jsPDF: { unit: "mm", format: pdfFormat, orientation: "portrait" as const },
-      pagebreak: { mode: ["css", "legacy"] },
-    };
-
-    let targetFolderId = currentFolder.id;
-    if (targetFolderId === "root" || targetFolderId === "shared") {
-      const savedLink = sharedDriveLink.trim() || getPetugasPrivateDriveLink(petugas);
-      const extractedId = savedLink ? extractDriveFolderId(savedLink) : null;
-      if (extractedId) targetFolderId = extractedId;
-    }
-
-    // Resolve target folder URL based on configured link or ID
-    const targetFolderUrl = getDriveFolderUrl(targetFolderId);
-
-    const webhookUrl = (
-      appsScriptUrl ||
-      localStorage.getItem("laporan_skp_apps_script_url") ||
-      appSettings?.apps_script_url ||
-      ""
-    ).trim();
-
-    const token = getDriveAccessToken() || manualToken.trim();
-
-    // Stage 1: Rendering PDF
-    setUploadProgress(15);
-    setUploadStatusMessage("Mengonversi foto & tata letak laporan...");
-
-    let pdfBlob: Blob | null = null;
     try {
-      setUploadProgress(30);
-      setUploadStatusMessage("Membuat file PDF standar...");
-      pdfBlob = await html2pdf().set(opt).from(element).output("blob");
-      setUploadProgress(50);
-      setUploadStatusMessage("PDF berhasil dibuat, mengunduh salinan lokal...");
+      const fileName = getExportFileName();
+      setUploadFileName(fileName);
 
-      if (pdfBlob) {
-        const blobUrl = URL.createObjectURL(pdfBlob);
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      let pdfMargin: [number, number, number, number] = [14.73, 15, 12, 15];
+      if (marginPreset === "compact") pdfMargin = [14.73, 8, 8, 8];
+      if (marginPreset === "wide") pdfMargin = [14.73, 20, 18, 20];
+
+      let pdfFormat: string | [number, number] = "a4";
+      if (paperSize === "letter") pdfFormat = "letter";
+      if (paperSize === "folio") pdfFormat = [215, 330];
+
+      const opt = {
+        margin: pdfMargin,
+        filename: fileName,
+        image: { type: "jpeg" as const, quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: "#ffffff",
+          onclone: (clonedDoc: Document) => {
+            sanitizeCanvasForExport(clonedDoc);
+          },
+        },
+        jsPDF: { unit: "mm", format: pdfFormat, orientation: "portrait" as const },
+        pagebreak: { mode: ["css", "legacy"] },
+      };
+
+      let targetFolderId = currentFolder.id;
+      if (targetFolderId === "root" || targetFolderId === "shared") {
+        const savedLink = sharedDriveLink.trim() || getPetugasPrivateDriveLink(petugas);
+        const extractedId = savedLink ? extractDriveFolderId(savedLink) : null;
+        if (extractedId) targetFolderId = extractedId;
       }
-    } catch (saveErr) {
-      console.warn("Local PDF generation notice:", saveErr);
-    }
 
-    // Stage 2: Direct API / Webhook upload if credentials exist
-    let backgroundUploadResult = null;
-    let uploadErrorMsg: string | null = null;
+      // Resolve target folder URL based on configured link or ID
+      const targetFolderUrl = getDriveFolderUrl(targetFolderId);
 
-    if (pdfBlob && (token || webhookUrl)) {
+      const webhookUrl = (
+        appsScriptUrl ||
+        localStorage.getItem("laporan_skp_apps_script_url") ||
+        appSettings?.apps_script_url ||
+        ""
+      ).trim();
+
+      const token = getDriveAccessToken() || manualToken.trim();
+
+      // Stage 1: Rendering PDF
+      setUploadProgress(15);
+      setUploadStatusMessage("Mengonversi foto & tata letak laporan...");
+
+      let pdfBlob: Blob | null = null;
       try {
-        setUploadProgress(60);
-        setUploadStatusMessage("Menghubungkan & mengunggah ke Google Drive...");
-        backgroundUploadResult = await uploadPdfToDrive(
-          pdfBlob,
-          fileName,
-          targetFolderId,
-          token || undefined,
-          webhookUrl || undefined,
-          (percent, message) => {
-            setUploadProgress(percent);
-            setUploadStatusMessage(message);
-          }
-        );
-      } catch (bgErr: any) {
-        console.warn("Direct upload notice:", bgErr);
-        uploadErrorMsg = bgErr?.message || "Gagal mengunggah file ke Google Drive.";
+        setUploadProgress(30);
+        setUploadStatusMessage("Membuat file PDF standar...");
+        pdfBlob = await html2pdf().set(opt).from(element).output("blob");
+        setUploadProgress(50);
+        setUploadStatusMessage("PDF berhasil dibuat, mengunduh salinan lokal...");
+
+        if (pdfBlob) {
+          const blobUrl = URL.createObjectURL(pdfBlob);
+          const a = document.createElement("a");
+          a.href = blobUrl;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        }
+      } catch (saveErr) {
+        console.warn("Local PDF generation notice:", saveErr);
+      }
+
+      // Stage 2: Direct API / Webhook upload if credentials exist
+      let backgroundUploadResult = null;
+      let uploadErrorMsg: string | null = null;
+
+      if (pdfBlob && (token || webhookUrl)) {
+        try {
+          setUploadProgress(60);
+          setUploadStatusMessage("Menghubungkan & mengunggah ke Google Drive...");
+          backgroundUploadResult = await uploadPdfToDrive(
+            pdfBlob,
+            fileName,
+            targetFolderId,
+            token || undefined,
+            webhookUrl || undefined,
+            (percent, message) => {
+              setUploadProgress(percent);
+              setUploadStatusMessage(message);
+            }
+          );
+        } catch (bgErr: any) {
+          console.warn("Direct upload notice:", bgErr);
+          uploadErrorMsg = bgErr?.message || "Gagal mengunggah file ke Google Drive.";
+          setDriveUploadError(uploadErrorMsg);
+        }
+      } else {
+        uploadErrorMsg =
+          "Token Google Drive atau Webhook Apps Script belum diisi. Silakan isi URL Webhook Apps Script atau Login Google Drive.";
         setDriveUploadError(uploadErrorMsg);
       }
-    } else {
-      uploadErrorMsg =
-        "Token Google Drive atau Webhook Apps Script belum diisi. Silakan isi URL Webhook Apps Script atau Login Google Drive.";
-      setDriveUploadError(uploadErrorMsg);
-    }
 
-    if (backgroundUploadResult) {
-      setUploadProgress(100);
-      setUploadStatusMessage("Upload Berhasil Selesai!");
-      await new Promise((res) => setTimeout(res, 600));
+      if (backgroundUploadResult) {
+        setUploadProgress(100);
+        setUploadStatusMessage("Upload Berhasil Selesai!");
+        await new Promise((res) => setTimeout(res, 600));
 
-      const finalDriveUrl = backgroundUploadResult?.webViewLink || targetFolderUrl;
-      setDriveUploadSuccess({
-        id: backgroundUploadResult?.id || "direct-export-" + Date.now(),
-        name: fileName,
-        webViewLink: finalDriveUrl,
-      });
+        const finalDriveUrl = backgroundUploadResult?.webViewLink || targetFolderUrl;
+        setDriveUploadSuccess({
+          id: backgroundUploadResult?.id || "direct-export-" + Date.now(),
+          name: fileName,
+          webViewLink: finalDriveUrl,
+        });
+        setShowDriveModal(true);
+        addToast("success", "File PDF berhasil tersimpan di Google Drive!");
+      } else {
+        setUploadProgress(100);
+        setUploadStatusMessage("Gagal Upload ke Google Drive");
+        await new Promise((res) => setTimeout(res, 400));
+        const failMsg = uploadErrorMsg || "Gagal mengunggah file ke Google Drive.";
+        addToast("error", failMsg);
+        setShowDriveModal(true);
+      }
+    } catch (err: any) {
+      console.error("Critical error during execute upload to drive:", err);
+      setDriveUploadError(err?.message || "Terjadi kesalahan yang tidak terduga saat upload.");
       setShowDriveModal(true);
-      addToast("success", "File PDF berhasil tersimpan di Google Drive!");
-    } else {
-      setUploadProgress(100);
-      setUploadStatusMessage("Gagal Upload ke Google Drive");
-      await new Promise((res) => setTimeout(res, 400));
-      const failMsg = uploadErrorMsg || "Gagal mengunggah file ke Google Drive.";
-      addToast("error", failMsg);
-      setShowDriveModal(true);
+    } finally {
+      setIsUploadingDrive(false);
+      handleLoadFolderFiles();
     }
-
-    setIsUploadingDrive(false);
-    handleLoadFolderFiles();
   };
 
   const handlePrint = () => {
@@ -1818,14 +1869,24 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
             <div className="p-5 overflow-y-auto space-y-4 text-xs relative">
               {/* Full overlay loading animation during upload */}
               {(isUploadingDrive || isGeneratingPdf) && (
-                <div className="absolute inset-0 z-20 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-200">
+                <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-200">
                   <div className="w-16 h-16 bg-sky-100 text-sky-600 rounded-full flex items-center justify-center mb-4 shadow-inner">
                     <Loader2 className="w-8 h-8 animate-spin" />
                   </div>
                   <h4 className="font-extrabold text-slate-800 text-lg mb-1">Menyimpan Laporan...</h4>
-                  <p className="text-slate-500 text-xs max-w-xs">
+                  <p className="text-slate-500 text-xs max-w-xs mb-3">
                     Sedang memproses dokumen PDF dan mengunggahnya ke Google Drive Anda. Mohon tunggu sebentar.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUploadingDrive(false);
+                      setIsGeneratingPdf(false);
+                    }}
+                    className="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer shadow-2xs"
+                  >
+                    Batal / Unfreeze Modal
+                  </button>
                 </div>
               )}
 
@@ -1936,39 +1997,65 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                   </div>
                 </div>
 
-                {/* Section 1B: Apps Script Webhook URL Config (Admin Only Edit) */}
-                <div className="p-4 bg-purple-50/90 border border-purple-200 rounded-2xl space-y-3 shadow-2xs">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
-                      <FileCode className="w-4 h-4 text-purple-600" />
-                      <span>Apps Script Webhook URL {isAdmin ? "(Khusus Admin)" : "(Pengaturan Sistem)"}:</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowAppsScriptGuideModal(true)}
-                      className="text-[11px] font-bold text-purple-700 hover:text-purple-900 underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <HelpCircle className="w-3.5 h-3.5" />
-                      <span>Petunjuk & Kode</span>
-                    </button>
-                  </div>
+                {/* Section 1B: Apps Script Webhook URL Config (Admin Only) */}
+                {isAdmin && (
+                  <div className="p-4 bg-purple-50/90 border border-purple-200 rounded-2xl space-y-3 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                        <FileCode className="w-4 h-4 text-purple-600" />
+                        <span>Apps Script Webhook URL (Khusus Admin):</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowAppsScriptGuideModal(true)}
+                        className="text-[11px] font-bold text-purple-700 hover:text-purple-900 underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <HelpCircle className="w-3.5 h-3.5" />
+                        <span>Petunjuk &amp; Kode</span>
+                      </button>
+                    </div>
 
-                  {isAdmin ? (
-                    <>
+                    <div className="space-y-2">
                       <div className="flex gap-2">
                         <input
                           type="text"
                           value={appsScriptUrl}
-                          onChange={(e) => handleSaveAppsScriptUrl(e.target.value)}
+                          onChange={(e) => setAppsScriptUrl(e.target.value)}
                           placeholder="https://script.google.com/macros/s/.../exec"
                           className="flex-1 bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
                         />
-                        {isAppsScriptSaved && (
-                          <span className="px-3 py-2 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-1 animate-in fade-in shrink-0">
-                            <Check className="w-3.5 h-3.5" /> Tersimpan
-                          </span>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleSaveAppsScriptUrl(appsScriptUrl)}
+                          className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer shadow-xs"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Simpan Webhook</span>
+                        </button>
+                        {appsScriptUrl.trim() ? (
+                          <button
+                            type="button"
+                            title="Hapus / Reset Webhook"
+                            onClick={() => {
+                              setAppsScriptUrl("");
+                              handleSaveAppsScriptUrl("");
+                            }}
+                            className="px-2.5 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl flex items-center shrink-0 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : null}
                       </div>
+
+                      {isAppsScriptSaved && (
+                        <p className="text-[11px] font-bold text-emerald-700 flex items-center gap-1 animate-in fade-in">
+                          <Check className="w-3.5 h-3.5" /> URL Webhook berhasil diperbarui oleh Admin!
+                        </p>
+                      )}
+
+                      <p className="text-[10.5px] text-purple-900 font-medium">
+                        * Admin dapat mengubah, mengganti, atau memperbarui URL Webhook kapan saja jika ada pembaruan versi di Google Apps Script.
+                      </p>
 
                       {/* Realtime URL warning if user pasted Vercel or non-Apps Script URL */}
                       {appsScriptUrl.trim() && !appsScriptUrl.includes("script.google.com") && (
@@ -1990,23 +2077,9 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                           </button>
                         </div>
                       )}
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-purple-100 text-xs">
-                      {appsScriptUrl.trim() ? (
-                        <div className="flex items-center gap-2 text-emerald-700 font-bold">
-                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                          <span>Status Webhook Google Drive: Aktif (Dikonfigurasi oleh Admin)</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 text-amber-700 font-bold">
-                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                          <span>Status Webhook Google Drive: Belum Set oleh Admin</span>
-                        </div>
-                      )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {/* Section 2: Directory Tree View Component matching screenshot */}
                 <DriveTreeView
