@@ -122,28 +122,33 @@ Gaya penulisan yang diminta: ${styleInstruction}
 
 KEMBALIKAN HANYA FORMAT JSON SBB (tanpa markdown backticks, tanpa kata pengantar):
 {
-  "isi": "Narasi pelaksanaan kegiatan...",
-  "hasil": "Narasi hasil dan capaian kegiatan..."
+  "isi": "<p>Narasi pelaksanaan kegiatan...</p>",
+  "hasil": "<p>Narasi hasil dan capaian kegiatan...</p>"
 }`;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-3.6-flash",
-          contents: prompt,
-        });
-
-        const rawText = response.text || "";
-        let cleaned = rawText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").trim();
-        if (cleaned.endsWith("```")) {
-          cleaned = cleaned.slice(0, -3).trim();
+        // Try primary model gemini-3.6-flash first, then fallback to gemini-flash-latest
+        let responseText = "";
+        try {
+          const resAI = await ai.models.generateContent({
+            model: "gemini-3.6-flash",
+            contents: prompt,
+          });
+          responseText = resAI.text || "";
+        } catch (m1Err) {
+          console.warn("gemini-3.6-flash failed, trying gemini-flash-latest:", m1Err);
+          const resAI2 = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents: prompt,
+          });
+          responseText = resAI2.text || "";
         }
 
-        try {
-          const parsed = JSON.parse(cleaned);
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
           if (parsed.isi && parsed.hasil) {
             return res.json({ isi: parsed.isi, hasil: parsed.hasil });
           }
-        } catch {
-          // Fallthrough to standard text wrap if JSON parse fails
         }
       } catch (genError) {
         console.warn("Gemini API call failed, falling back to smart template:", genError);
@@ -156,14 +161,14 @@ KEMBALIKAN HANYA FORMAT JSON SBB (tanpa markdown backticks, tanpa kata pengantar
     let fallbackHasil = "";
 
     if (style === "ringkas") {
-      fallbackIsi = `Melaksanakan ${kw} secara langsung sesuai prosedur kerja yang berlaku, meliputi persiapan, koordinasi, dan pelaksanaan teknis.`;
-      fallbackHasil = `Tercapainya target ${kw} secara baik, tepat waktu, serta tersusunnya catatan evaluasi pelaksanaan.`;
+      fallbackIsi = `<p>Melaksanakan <strong>${kw}</strong> secara langsung sesuai prosedur kerja yang berlaku, meliputi tahap persiapan, koordinasi lintas sektor, dan pelaksanaan teknis di lapangan.</p>`;
+      fallbackHasil = `<p>Tercapainya target <strong>${kw}</strong> secara baik, tepat waktu, serta tersusunnya dokumen laporan dan catatan evaluasi pelaksanaan tugas.</p>`;
     } else if (style === "teknis") {
-      fallbackIsi = `Melakukan verifikasi teknis dan eksekusi operasional terkait ${kw}. Tahapan mencakup: 1) Pemeriksaan instrumen & kelengkapan; 2) Pengujian/pendampingan lapangan; 3) Analisis data hasil pelaksanaan.`;
-      fallbackHasil = `Indikator teknis ${kw} terpenuhi 100%, data terverifikasi secara presisi, dan dokumen berita acara telah diterbitkan.`;
+      fallbackIsi = `<p>Melakukan verifikasi teknis dan eksekusi operasional terkait <strong>${kw}</strong>.</p><p>Tahapan pelaksanaan mencakup:</p><ol><li>Pemeriksaan instrumen &amp; kelengkapan administrasi;</li><li>Pengujian dan pendampingan lapangan;</li><li>Analisis data serta rekapitulasi hasil pelaksanaan.</li></ol>`;
+      fallbackHasil = `<p>Indikator teknis <strong>${kw}</strong> terpenuhi 100%, data terverifikasi secara presisi, dan dokumen berita acara kegiatan telah diterbitkan.</p>`;
     } else {
-      fallbackIsi = `Telah dilaksanakan kegiatan ${kw} sesuai dengan petunjuk teknis dan rencana kerja harian. Pelaksanaan diawali dengan koordinasi bersama pihak terkait, penyiapan dokumen pendukung, penyampaian materi/substansi kegiatan, serta pendampingan langsung secara berkesinambungan untuk memastikan seluruh alur tugas berjalan secara efektif, efisien, dan transparan sesuai dengan standar operasional prosedur (SOP) birokrasi pemerintahan.`;
-      fallbackHasil = `Tercapainya sasaran pelaksanaan ${kw} dengan hasil optimal. Terkumpulnya data dan informasi pendukung secara lengkap, tersusunnya rekapitulasi pelaksanaan tugas, serta terciptanya koordinasi yang harmonis antar instansi/pihak terkait untuk mendukung capaian Indikator Kinerja Utama (IKU) organisasi secara akuntabel.`;
+      fallbackIsi = `<p>Telah dilaksanakan kegiatan <strong>${kw}</strong> sesuai dengan petunjuk teknis dan rencana kerja harian.</p><p>Pelaksanaan diawali dengan koordinasi bersama pihak terkait, penyiapan dokumen pendukung, penyampaian materi/substansi kegiatan, serta pendampingan langsung secara berkesinambungan untuk memastikan seluruh alur tugas berjalan secara efektif, efisien, dan transparan sesuai dengan Standar Operasional Prosedur (SOP) birokrasi pemerintahan.</p>`;
+      fallbackHasil = `<p>Tercapainya sasaran pelaksanaan <strong>${kw}</strong> dengan hasil optimal.</p><p>Terkumpulnya data dan informasi pendukung secara lengkap, tersusunnya rekapitulasi pelaksanaan tugas, serta terciptanya koordinasi yang harmonis antar instansi/pihak terkait untuk mendukung capaian Indikator Kinerja Utama (IKU) organisasi secara akuntabel.</p>`;
     }
 
     return res.json({ isi: fallbackIsi, hasil: fallbackHasil });
@@ -196,29 +201,35 @@ app.post("/api/generate-template-ai", async (req, res) => {
 Buatkan draft narasi lengkap untuk 'Template Laporan Resmi' (RHK ${nomorRhk || 1}) berdasarkan kata kunci/topik berikut: "${keyword.trim()}".
 Gaya penulisan: ${styleInstruction}
 
-Hasilkan 6 narasi berikut dalam JSON (tanpa markdown backticks, tanpa teks pendahuluan):
+Hasilkan 6 narasi berikut dalam format JSON murni (tanpa markdown backticks, tanpa teks pendahuluan):
 {
-  "umum": "Narasi latar belakang/gambaran umum tugas...",
-  "maksudTujuan": "Narasi maksud dan tujuan pelaksanaan...",
-  "ruangLingkup": "Narasi ruang lingkup kegiatan...",
-  "dasar": "1. Landasan regulasi/Peraturan terkait...\\n2. Surat Tugas/Perintah Kepala Instansi...",
-  "simpulan": "Narasi simpulan capaian dan saran rekomendasi...",
-  "penutup": "Narasi penutup laporan resmi..."
+  "umum": "<p>Narasi latar belakang/gambaran umum tugas...</p>",
+  "maksudTujuan": "<p>Narasi maksud dan tujuan pelaksanaan...</p>",
+  "ruangLingkup": "<p>Narasi ruang lingkup kegiatan...</p>",
+  "dasar": "<ol><li>Peraturan perundang-undangan...</li><li>Surat Tugas / RHK...</li></ol>",
+  "simpulan": "<p>Narasi simpulan capaian dan saran rekomendasi...</p>",
+  "penutup": "<p>Narasi penutup laporan resmi...</p>"
 }`;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-3.6-flash",
-          contents: prompt,
-        });
-
-        const rawText = response.text || "";
-        let cleaned = rawText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").trim();
-        if (cleaned.endsWith("```")) {
-          cleaned = cleaned.slice(0, -3).trim();
+        let responseText = "";
+        try {
+          const resAI = await ai.models.generateContent({
+            model: "gemini-3.6-flash",
+            contents: prompt,
+          });
+          responseText = resAI.text || "";
+        } catch (m1Err) {
+          console.warn("gemini-3.6-flash failed for template generator, trying gemini-flash-latest:", m1Err);
+          const resAI2 = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents: prompt,
+          });
+          responseText = resAI2.text || "";
         }
 
-        try {
-          const parsed = JSON.parse(cleaned);
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
           if (
             parsed.umum &&
             parsed.maksudTujuan &&
@@ -229,8 +240,6 @@ Hasilkan 6 narasi berikut dalam JSON (tanpa markdown backticks, tanpa teks penda
           ) {
             return res.json(parsed);
           }
-        } catch {
-          // Fallthrough to fallback
         }
       } catch (genError) {
         console.warn("Gemini API call failed for template generator, using fallback:", genError);
@@ -240,12 +249,12 @@ Hasilkan 6 narasi berikut dalam JSON (tanpa markdown backticks, tanpa teks penda
     // Smart Fallback
     const kw = keyword.trim();
     return res.json({
-      umum: `Laporan ini disusun sebagai pertanggungjawaban pelaksanaan tugas operasional ASN terkait ${kw} dalam rangka mendukung indikator kinerja instansi secara transparan dan akuntabel.`,
-      maksudTujuan: `Maksud dan tujuan kegiatan ini adalah untuk merealisasikan sasaran kerja ${kw} dengan standar mutu pelayanan yang tinggi dan meminimalisir kendala teknis di lapangan.`,
-      ruangLingkup: `Ruang lingkup pelaksanaan meliputi perencanaan awal, koordinasi administratif, eksekusi teknis ${kw}, serta penyusunan berkas evaluasi dan pelaporan.`,
-      dasar: `1. Peraturan Perundang-undangan dan Petunjuk Teknis Instansi Terkait.\n2. Surat Perintah Tugas/Rencana Kinerja Tahunan Organisasi.`,
-      simpulan: `Pelaksanaan ${kw} telah terselenggara dengan hasil memuaskan dan mencapai target indikator keberhasilan yang dipersyaratkan.`,
-      penutup: `Demikian laporan pelaksanaan kegiatan ini dibuat dengan penuh rasa tanggung jawab untuk digunakan sebagai bahan pertimbangan pimpinan.`,
+      umum: `<p>Laporan ini disusun sebagai bentuk pertanggungjawaban pelaksanaan tugas operasional ASN terkait <strong>${kw}</strong> dalam rangka mendukung pencapaian indikator kinerja instansi secara transparan, akuntabel, dan profesional.</p>`,
+      maksudTujuan: `<p>Maksud dan tujuan pelaksanaan kegiatan ini adalah untuk merealisasikan sasaran kerja <strong>${kw}</strong> dengan standar mutu pelayanan publik yang tinggi serta meminimalisir kendala teknis operasional di lapangan.</p>`,
+      ruangLingkup: `<p>Ruang lingkup pelaksanaan tugas mencakup tahap perencanaan awal, koordinasi administratif antar unit, eksekusi teknis operasional <strong>${kw}</strong>, serta penyusunan berkas evaluasi dan pelaporan resmi.</p>`,
+      dasar: `<ol><li>Peraturan Perundang-undangan dan Petunjuk Teknis Instansi yang berlaku;</li><li>Surat Perintah Tugas dan Rencana Kinerja Tahunan (RHK ${nomorRhk || 1}) Organisasi.</li></ol>`,
+      simpulan: `<p>Pelaksanaan tugas <strong>${kw}</strong> telah terselenggara dengan hasil optimal dan berhasil mencapai target indikator keberhasilan yang dipersyaratkan oleh instansi.</p>`,
+      penutup: `<p>Demikian laporan pelaksanaan kegiatan ini dibuat dengan penuh rasa tanggung jawab untuk dipergunakan sebagaimana mestinya dan sebagai bahan pertimbangan pimpinan.</p>`,
     });
   } catch (err: any) {
     console.error("Template AI Generator Error:", err);
