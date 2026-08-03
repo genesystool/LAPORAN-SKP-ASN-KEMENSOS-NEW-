@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Petugas, ToastMessage } from "../types";
-import { User, Lock, IdCard, UserPlus, LogIn, CheckCircle2, ShieldCheck, AlertCircle } from "lucide-react";
+import { User, Lock, IdCard, UserPlus, LogIn, CheckCircle2, ShieldCheck, AlertCircle, Eye, EyeOff } from "lucide-react";
 
 interface LoginViewProps {
   onLoginSuccess: (petugas: Petugas) => void;
@@ -20,12 +20,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
   // Login form state
   const [loginNip, setLoginNip] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginCaptchaAns, setLoginCaptchaAns] = useState("");
 
   // Register form state
   const [regNip, setRegNip] = useState("");
   const [regNama, setRegNama] = useState("");
   const [regPassword, setRegPassword] = useState("");
+  const [showRegPassword, setShowRegPassword] = useState(false);
   const [regCaptchaAns, setRegCaptchaAns] = useState("");
 
   // Captcha state
@@ -219,13 +221,21 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 <div className="relative">
                   <Lock className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
-                    type="password"
+                    type={showRegPassword ? "text" : "password"}
                     required
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
                     placeholder="Masukkan password"
-                    className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowRegPassword(!showRegPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 focus:outline-none transition-colors"
+                    title={showRegPassword ? "Sembunyikan Password" : "Tampilkan Password"}
+                  >
+                    {showRegPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 
@@ -292,13 +302,21 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 <div className="relative">
                   <Lock className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
-                    type="password"
+                    type={showLoginPassword ? "text" : "password"}
                     required
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     placeholder="Masukkan password"
-                    className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 focus:outline-none transition-colors"
+                    title={showLoginPassword ? "Sembunyikan Password" : "Tampilkan Password"}
+                  >
+                    {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 
