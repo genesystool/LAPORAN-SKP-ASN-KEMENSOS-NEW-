@@ -41,10 +41,18 @@ import {
   FolderSearch,
   HelpCircle,
   FileCode,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { AppsScriptGuideModal } from "./AppsScriptGuideModal";
 // @ts-ignore
 import html2pdf from "html2pdf.js";
+import * as pdfjsLib from "pdfjs-dist";
+// @ts-ignore
+import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+
+// Set pdfjs worker URL using bundled Vite url
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 import {
   uploadPdfToDrive,
   listDriveFolders,
@@ -64,7 +72,7 @@ import {
 // Helper function to render clean formatted HTML or plain text without raw tags or squished lines
 const renderFormattedContent = (content: string | undefined | null) => {
   if (!content || content.trim() === "" || content === "-") {
-    return <span className="text-slate-500 italic">-</span>;
+    return <span className="text-slate-500 italic font-serif">-</span>;
   }
 
   const trimmed = content.trim();
@@ -73,14 +81,14 @@ const renderFormattedContent = (content: string | undefined | null) => {
   if (/<[a-z][\s\S]*>/i.test(trimmed)) {
     return (
       <div
-        className="prose prose-sm max-w-none text-slate-900 leading-relaxed font-serif [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ol]:list-decimal [&>ol]:pl-5 [&>ul]:list-disc [&>ul]:pl-5"
+        className="prose max-w-none text-slate-900 leading-relaxed font-serif text-inherit [&_*]:font-serif [&_*]:text-inherit [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ol]:list-decimal [&>ol]:pl-5 [&>ul]:list-disc [&>ul]:pl-5 [&_p]:mb-1.5 [&_p:last-child]:mb-0 [&_p]:leading-relaxed [&_li]:leading-relaxed [&_p]:text-inherit [&_li]:text-inherit [&_span]:text-inherit [&_div]:text-inherit [&_strong]:font-bold"
         dangerouslySetInnerHTML={{ __html: trimmed }}
       />
     );
   }
 
   // Fallback for plain text: preserve linebreaks nicely
-  return <div className="whitespace-pre-line leading-relaxed font-serif text-slate-900">{trimmed}</div>;
+  return <div className="whitespace-pre-line leading-relaxed font-serif text-slate-900 text-inherit">{trimmed}</div>;
 };
 
 interface PrintReportViewProps {
@@ -122,6 +130,12 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   const [driveUploadSuccess, setDriveUploadSuccess] = useState<DriveUploadResult | null>(null);
   const [driveUploadError, setDriveUploadError] = useState<string | null>(null);
   const [showSettingsToolbar, setShowSettingsToolbar] = useState(true);
+
+  // Google PDF Viewer Modal State
+  const [showPdfViewerModal, setShowPdfViewerModal] = useState(false);
+  const [pdfPageDataUrls, setPdfPageDataUrls] = useState<string[]>([]);
+  const [isPdfViewerLoading, setIsPdfViewerLoading] = useState(false);
+  const [pdfViewerZoom, setPdfViewerZoom] = useState<number>(100);
 
   // Paper & Layout Customization State
   const [paperSize, setPaperSize] = useState<"a4" | "letter" | "folio">("a4");
@@ -338,18 +352,116 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       paper.style.outline = "none";
       paper.style.backgroundColor = "#ffffff";
       paper.style.color = "#0f172a";
+      paper.style.padding = "0";
       paper.style.margin = "0 auto";
       paper.style.zoom = "1";
       paper.style.transform = "none";
+      paper.classList.remove("p-6", "p-8", "p-12", "md:p-8", "md:p-14", "md:p-20", "shadow-2xl");
 
-      // Adjust page 1 top margin offset:
-      // Base top margin for PDF page 2+ is 0.58 in (14.73 mm).
-      // Shift page 1 top Kop element up by 11.17 mm (0.44 in) so page 1 top margin is 0.14 in (3.56 mm).
       const kopWrapper = paper.firstElementChild as HTMLElement;
       if (kopWrapper) {
-        const currentTopMargin = parseFloat(kopWrapper.style.marginTop || "0");
-        kopWrapper.style.marginTop = `${currentTopMargin - 11.17}mm`;
+        kopWrapper.style.boxSizing = "border-box";
       }
+    }
+
+    const reportBlocks = clonedDoc.querySelectorAll(".report-block");
+    reportBlocks.forEach((block) => {
+      const htmlBlock = block as HTMLElement;
+      htmlBlock.style.breakInside = "auto";
+      htmlBlock.style.pageBreakInside = "auto";
+    });
+  };
+
+  // Helper to generate rendered PDF page images with current paper settings via pdfjs-dist
+  const generatePdfPageImagesForViewer = async (): Promise<string[]> => {
+    const element = document.getElementById("report-paper");
+    if (!element) return [];
+
+    let pdfMargin: [number, number, number, number] = [14.73, 15, 12, 15];
+    if (marginPreset === "compact") pdfMargin = [14.73, 8, 8, 8];
+    if (marginPreset === "wide") pdfMargin = [14.73, 20, 18, 20];
+
+    let pdfFormat: string | [number, number] = "a4";
+    if (paperSize === "letter") pdfFormat = "letter";
+    if (paperSize === "folio") pdfFormat = [215, 330];
+
+    const opt = {
+      margin: pdfMargin,
+      filename: getExportFileName(),
+      image: { type: "jpeg" as const, quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+        onclone: (clonedDoc: Document) => {
+          sanitizeCanvasForExport(clonedDoc);
+        },
+      },
+      jsPDF: { unit: "mm", format: pdfFormat, orientation: "portrait" as const },
+      pagebreak: { mode: ["css", "legacy"] },
+    };
+
+    try {
+      const arrayBuffer = await html2pdf().set(opt).from(element).output("arraybuffer");
+      if (!arrayBuffer) return [];
+
+      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+      const pdf = await loadingTask.promise;
+
+      const pageImages: string[] = [];
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1.8 });
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        if (context) {
+          await page.render({
+            canvasContext: context,
+            viewport: viewport,
+          }).promise;
+          pageImages.push(canvas.toDataURL("image/png"));
+        }
+      }
+      return pageImages;
+    } catch (err) {
+      console.error("Error rendering PDF pages for viewer:", err);
+      return [];
+    }
+  };
+
+  const handleOpenPdfViewer = async () => {
+    setShowPdfViewerModal(true);
+    setIsPdfViewerLoading(true);
+    try {
+      const pageImages = await generatePdfPageImagesForViewer();
+      if (pageImages.length > 0) {
+        setPdfPageDataUrls(pageImages);
+      } else {
+        addToast("error", "Gagal menggenerate halaman PDF untuk preview.");
+      }
+    } catch (err) {
+      console.error("Failed to generate PDF for viewer:", err);
+      addToast("error", "Terjadi kesalahan saat memproses preview PDF.");
+    } finally {
+      setIsPdfViewerLoading(false);
+    }
+  };
+
+  const handleRefreshPdfViewer = async () => {
+    setIsPdfViewerLoading(true);
+    try {
+      const pageImages = await generatePdfPageImagesForViewer();
+      if (pageImages.length > 0) {
+        setPdfPageDataUrls(pageImages);
+      }
+    } catch (err) {
+      console.error("Refresh PDF Viewer failed:", err);
+    } finally {
+      setIsPdfViewerLoading(false);
     }
   };
 
@@ -386,7 +498,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           },
         },
         jsPDF: { unit: "mm", format: pdfFormat, orientation: "portrait" as const },
-        pagebreak: { mode: ["css", "legacy", "avoid-all"] },
+        pagebreak: { mode: ["css", "legacy"] },
       };
 
       await html2pdf().set(opt).from(element).save();
@@ -475,10 +587,8 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
 
       const photoImgs = clone.querySelectorAll('img[alt*="Dokumentasi"]');
       photoImgs.forEach((img) => {
-        img.setAttribute("width", "480");
-        img.setAttribute("height", "300");
         (img as HTMLElement).style.cssText =
-          "width: 480px; max-width: 100%; height: auto; max-height: 300px; object-fit: cover; display: block; margin: 0 auto 10px auto; border: 1px solid #999999; border-radius: 4px;";
+          "width: auto; max-width: 100%; height: auto; max-height: 320px; object-fit: contain; display: block; margin: 0 auto 10px auto; border: 1px solid #999999; border-radius: 4px;";
       });
 
       // 7. Format Tables (Pelaksanaan Kegiatan, Data Tables)
@@ -1025,7 +1135,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
         },
       },
       jsPDF: { unit: "mm", format: pdfFormat, orientation: "portrait" as const },
-      pagebreak: { mode: ["css", "legacy", "avoid-all"] },
+      pagebreak: { mode: ["css", "legacy"] },
     };
 
     let targetFolderId = currentFolder.id;
@@ -1147,6 +1257,23 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           </button>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleOpenPdfViewer}
+              disabled={isGeneratingPdf || isPdfViewerLoading || isGeneratingDoc}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer active:scale-95"
+              title="Buka Preview PDF dengan tampilan Google PDF Viewer resmi"
+            >
+              {isPdfViewerLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Membuka PDF...
+                </>
+              ) : (
+                <>
+                  <Eye className="w-4 h-4 text-indigo-200" /> Preview PDF (Google Viewer)
+                </>
+              )}
+            </button>
+
             <button
               onClick={() => setShowSettingsToolbar(!showSettingsToolbar)}
               className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
@@ -1510,7 +1637,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
         {/* Report Content */}
         <div className="space-y-6 text-justify">
           {/* Section I */}
-          <div className="report-block break-inside-avoid page-break-inside-avoid mb-5">
+          <div className="report-block mb-5">
             <h4 className="font-bold mb-1.5 uppercase text-slate-900">I. PENDAHULUAN</h4>
             <div className="pl-4 space-y-2.5">
               <div>
@@ -1533,12 +1660,12 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           </div>
 
           {/* Section II */}
-          <div className="report-block break-inside-avoid page-break-inside-avoid mb-5">
+          <div className="report-block mb-5">
             <h4 className="font-bold mb-1.5 uppercase text-slate-900">II. PELAKSANAAN KEGIATAN</h4>
             <div className="pl-4 space-y-2.5">
               <div>{renderFormattedContent(kegiatan.isi_kegiatan)}</div>
               <p className="pt-1 font-semibold text-slate-900">Jam dan Tanggal Kegiatan dilaksanakan pada jadwal berikut:</p>
-              <table className="w-full max-w-md ml-2 font-serif text-xs border-collapse">
+              <table className="w-full max-w-md ml-2 font-serif text-inherit border-collapse">
                 <tbody>
                   <tr>
                     <td className="w-32 py-1 font-semibold align-top text-slate-900">Hari / Tanggal</td>
@@ -1558,7 +1685,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           </div>
 
           {/* Section III */}
-          <div className="report-block break-inside-avoid page-break-inside-avoid mb-5">
+          <div className="report-block mb-5">
             <h4 className="font-bold mb-1.5 uppercase text-slate-900">III. HASIL YANG DICAPAI</h4>
             <div className="pl-4">
               {renderFormattedContent(kegiatan.hasil)}
@@ -1566,7 +1693,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           </div>
 
           {/* Section IV */}
-          <div className="report-block break-inside-avoid page-break-inside-avoid mb-5">
+          <div className="report-block mb-5">
             <h4 className="font-bold mb-1.5 uppercase text-slate-900">IV. SIMPULAN DAN SARAN</h4>
             <div className="pl-4">
               {renderFormattedContent(simpulan)}
@@ -1574,7 +1701,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           </div>
 
           {/* Section V */}
-          <div className="report-block break-inside-avoid page-break-inside-avoid mb-5">
+          <div className="report-block mb-5">
             <h4 className="font-bold mb-1.5 uppercase text-slate-900">V. PENUTUP</h4>
             <div className="pl-4">
               {renderFormattedContent(penutup)}
@@ -1588,7 +1715,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
         >
           <div
-            className="w-64 text-xs space-y-1 break-inside-avoid page-break-inside-avoid"
+            className="w-64 font-serif text-inherit space-y-1 break-inside-avoid page-break-inside-avoid"
             style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
           >
             <p>Dibuat di : {tempatDibuatLaporan}</p>
@@ -1603,8 +1730,8 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
               )}
             </div>
 
-            <p className="font-bold underline text-sm">{userNama}</p>
-            <p className="font-mono text-[11px]">NIP. {userNip}</p>
+            <p className="font-bold underline text-inherit">{userNama}</p>
+            <p className="font-serif text-inherit">NIP. {userNip}</p>
           </div>
         </div>
 
@@ -1639,7 +1766,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                         <img
                           src={foto}
                           alt={`Dokumentasi ${globalIdx + 1}`}
-                          className="w-full h-64 object-cover rounded-md border border-slate-300 shadow-2xs mx-auto"
+                          className="max-w-full max-h-[360px] w-auto h-auto object-contain rounded-md border border-slate-300 shadow-2xs mx-auto bg-slate-50"
                         />
                         <p className="text-[11px] text-slate-700 font-serif italic font-medium">
                           Dokumentasi {globalIdx + 1}: {kegiatan.tempat || "Lokasi Kegiatan"}
@@ -2231,6 +2358,197 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           </div>
         </div>
       )}
+      {/* Google PDF Viewer Modal */}
+      {showPdfViewerModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex flex-col p-2 md:p-6 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col h-full max-w-6xl w-full mx-auto overflow-hidden">
+            {/* Top Toolbar (Google Docs / Google PDF Viewer Style) */}
+            <div className="bg-slate-950 border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-slate-200">
+              {/* Left Title & Badge */}
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2 bg-rose-500/10 text-rose-500 rounded-lg border border-rose-500/20 shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-slate-100 truncate max-w-xs md:max-w-md">
+                      {getExportFileName()}
+                    </h3>
+                    <span className="text-[10px] bg-slate-800 text-slate-300 font-medium px-2 py-0.5 rounded-full border border-slate-700 flex items-center gap-1 shrink-0">
+                      <Eye className="w-3 h-3 text-sky-400" /> Google PDF Viewer
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 truncate">
+                    Preview tampilan PDF resmi ({paperSize.toUpperCase()} • {marginPreset} margin)
+                  </p>
+                </div>
+              </div>
+
+              {/* Middle Controls (Zoom & Refresh) */}
+              <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setPdfViewerZoom((prev) => Math.max(50, prev - 15))}
+                  className="p-1 hover:bg-slate-800 rounded text-slate-300 transition-colors"
+                  title="Zoom Out"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+
+                <select
+                  value={pdfViewerZoom}
+                  onChange={(e) => setPdfViewerZoom(Number(e.target.value))}
+                  className="bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded px-2 py-1 focus:outline-none"
+                >
+                  <option value={50}>50%</option>
+                  <option value={75}>75%</option>
+                  <option value={100}>100% (Fit Width)</option>
+                  <option value={125}>125%</option>
+                  <option value={150}>150%</option>
+                  <option value={200}>200%</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => setPdfViewerZoom((prev) => Math.min(200, prev + 15))}
+                  className="p-1 hover:bg-slate-800 rounded text-slate-300 transition-colors"
+                  title="Zoom In"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+
+                <div className="h-4 w-px bg-slate-700 mx-1" />
+
+                <button
+                  type="button"
+                  onClick={handleRefreshPdfViewer}
+                  disabled={isPdfViewerLoading}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded flex items-center gap-1 transition-colors"
+                  title="Perbarui Preview PDF"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isPdfViewerLoading ? "animate-spin text-sky-400" : ""}`} />
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
+              </div>
+
+              {/* Right Action Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-lg text-xs flex items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
+                  title="Cetak Laporan"
+                >
+                  <Printer className="w-4 h-4 text-slate-300" />
+                  <span className="hidden sm:inline">Cetak</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  disabled={isGeneratingPdf}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                  title="Unduh PDF"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download PDF</span>
+                </button>
+
+                {!isUploadDriveDisabled && (
+                  <button
+                    type="button"
+                    onClick={handleOpenDriveModal}
+                    className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-sm hidden md:flex cursor-pointer"
+                    title="Upload Ke Drive"
+                  >
+                    <CloudUpload className="w-4 h-4" />
+                    <span>Ke Drive</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowPdfViewerModal(false)}
+                  className="p-1.5 bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white rounded-lg transition-colors ml-1 cursor-pointer"
+                  title="Tutup Preview"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Viewer Body Canvas */}
+            <div className="flex-1 bg-slate-950 relative overflow-y-auto overflow-x-auto p-4 md:p-8 flex flex-col items-center gap-6 scrollbar-thin">
+              {isPdfViewerLoading ? (
+                <div className="flex flex-col items-center justify-center my-auto p-8 text-center text-slate-300 space-y-3">
+                  <div className="w-14 h-14 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-center shadow-inner relative">
+                    <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-sm text-slate-100">Menyiapkan Google PDF Viewer...</h4>
+                    <p className="text-xs text-slate-400">
+                      Mengonversi format teks baris demi baris, margins, dan foto dokumentasi
+                    </p>
+                  </div>
+                </div>
+              ) : pdfPageDataUrls.length > 0 ? (
+                <div
+                  className="flex flex-col items-center gap-6 transition-all duration-200"
+                  style={{
+                    transform: `scale(${pdfViewerZoom / 100})`,
+                    transformOrigin: "top center",
+                  }}
+                >
+                  {pdfPageDataUrls.map((dataUrl, idx) => (
+                    <div
+                      key={idx}
+                      className="relative bg-white shadow-2xl rounded-xs border border-slate-700 overflow-hidden group"
+                    >
+                      <img
+                        src={dataUrl}
+                        alt={`Halaman ${idx + 1}`}
+                        className="block max-w-full h-auto"
+                      />
+                      <div className="absolute top-3 right-3 bg-slate-900/90 text-slate-100 text-[11px] font-semibold px-2.5 py-1 rounded-md shadow-md border border-slate-700/80 backdrop-blur-xs flex items-center gap-1.5 pointer-events-none">
+                        <FileText className="w-3.5 h-3.5 text-sky-400" />
+                        <span>Halaman {idx + 1} dari {pdfPageDataUrls.length}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-slate-400 text-xs flex flex-col items-center justify-center my-auto gap-3">
+                  <AlertTriangle className="w-8 h-8 text-amber-500" />
+                  <p>Gagal memuat preview PDF. Silakan coba klik tombol Refresh.</p>
+                  <button
+                    type="button"
+                    onClick={handleRefreshPdfViewer}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-semibold text-xs transition-colors"
+                  >
+                    Refresh Preview
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Bottom Footer / Hint */}
+            <div className="bg-slate-950 border-t border-slate-800 px-4 py-2 flex items-center justify-between text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                Google PDF Viewer Engine • {pdfPageDataUrls.length} Halaman ({paperSize.toUpperCase()})
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowPdfViewerModal(false)}
+                className="text-slate-300 hover:text-white font-semibold underline cursor-pointer"
+              >
+                Tutup Viewer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Apps Script Guide & Code Modal */}
       <AppsScriptGuideModal
         isOpen={showAppsScriptGuideModal}
