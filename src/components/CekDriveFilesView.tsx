@@ -23,6 +23,7 @@ import {
   CloudUpload,
   HelpCircle,
   FileCode,
+  Trash2,
 } from "lucide-react";
 import { AppsScriptGuideModal } from "./AppsScriptGuideModal";
 import {
@@ -76,10 +77,14 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
   });
 
   useEffect(() => {
-    if (appSettings?.apps_script_url) {
-      setAppsScriptUrl((prev) => (prev ? prev : appSettings.apps_script_url || ""));
-      if (typeof window !== "undefined" && appSettings.apps_script_url) {
-        localStorage.setItem("laporan_skp_apps_script_url", appSettings.apps_script_url);
+    if (appSettings?.apps_script_url !== undefined) {
+      setAppsScriptUrl(appSettings.apps_script_url || "");
+      if (typeof window !== "undefined") {
+        if (appSettings.apps_script_url) {
+          localStorage.setItem("laporan_skp_apps_script_url", appSettings.apps_script_url);
+        } else {
+          localStorage.removeItem("laporan_skp_apps_script_url");
+        }
       }
     }
   }, [appSettings?.apps_script_url]);
@@ -557,14 +562,16 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
                           <ExternalLink className="w-3.5 h-3.5" />
                           <span>Buka Folder Drive Langsung</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowConfigModal(true)}
-                          className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors"
-                        >
-                          <Settings className="w-3.5 h-3.5 text-purple-300" />
-                          <span>Konfigurasi Token / Webhook</span>
-                        </button>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setShowConfigModal(true)}
+                            className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors"
+                          >
+                            <Settings className="w-3.5 h-3.5 text-purple-300" />
+                            <span>Konfigurasi Token / Webhook</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   ) : displayFiles.length === 0 ? (
@@ -720,13 +727,30 @@ export const CekDriveFilesView: React.FC<CekDriveFilesViewProps> = ({
                 </div>
 
                 {isAdmin ? (
-                  <input
-                    type="text"
-                    value={appsScriptUrl}
-                    onChange={(e) => setAppsScriptUrl(e.target.value)}
-                    placeholder="https://script.google.com/macros/s/.../exec"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl p-3 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={appsScriptUrl}
+                        onChange={(e) => setAppsScriptUrl(e.target.value)}
+                        placeholder="https://script.google.com/macros/s/.../exec"
+                        className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl p-3 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      {appsScriptUrl.trim() ? (
+                        <button
+                          type="button"
+                          title="Hapus / Reset Webhook"
+                          onClick={() => setAppsScriptUrl("")}
+                          className="px-3.5 py-3 bg-rose-100 dark:bg-rose-950/50 hover:bg-rose-200 text-rose-700 dark:text-rose-300 font-bold text-xs rounded-2xl flex items-center shrink-0 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="text-[10.5px] text-purple-800 dark:text-purple-300 font-medium">
+                      * Admin dapat mengubah atau mengganti URL Webhook ini kapan saja. Klik tombol "Simpan Pengaturan" di bawah untuk menerapkan perubahan.
+                    </p>
+                  </div>
                 ) : (
                   <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs font-medium">
                     {appsScriptUrl.trim() ? (
