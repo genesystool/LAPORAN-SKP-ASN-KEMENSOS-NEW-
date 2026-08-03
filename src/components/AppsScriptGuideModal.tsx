@@ -306,8 +306,8 @@ export const AppsScriptGuideModal: React.FC<AppsScriptGuideModalProps> = ({
         {/* Footer */}
         <div className="p-4 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 shrink-0">
           <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
-            <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Setup ini hanya dilakukan 1x di Google Apps Script</span>
+            <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <span>Admin dapat memperbarui atau mengubah URL Webhook kapan saja di aplikasi</span>
           </span>
 
           <button
