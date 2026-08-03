@@ -262,36 +262,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Right Column (4 cols): Deployment Info & Summary Table */}
+        {/* Right Column (4 cols): Summary Table */}
         <div className="lg:col-span-4 space-y-6">
-          {/* Indigo Deployment Banner */}
-          <div className="bg-indigo-900 text-white p-6 rounded-xl shadow-md">
-            <h3 className="text-indigo-200 text-xs font-bold uppercase tracking-widest mb-4">
-              Deployment & Cloud Info
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs text-indigo-300">Akses Sync & Webhook</p>
-                <p className="text-xs font-mono truncate text-emerald-300">
-                  {typeof window !== "undefined" ? window.location.origin : "Aktif - Standalone Web App"}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-indigo-300">Status Akun</p>
-                <p className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 mt-0.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                  {currentUser.nama} ({currentUser.nip})
-                </p>
-              </div>
-              <button
-                onClick={() => onNavigate("lisensi")}
-                className="w-full bg-white/10 hover:bg-white/20 border border-white/20 py-2 rounded-md text-xs font-semibold text-white transition-colors"
-              >
-                Cek Lisensi & Akses Pro
-              </button>
-            </div>
-          </div>
-
           {/* Breakdown List Card */}
           <div className="bg-white p-6 rounded-xl shadow-xs border border-slate-200 space-y-4">
             <h3 className="text-sm font-bold text-slate-800">
