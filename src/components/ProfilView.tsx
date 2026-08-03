@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Petugas, ToastMessage } from "../types";
 import { compressImageFile } from "../lib/imageUtils";
-import { User, Key, Save, Camera, FileCheck, Loader2, Cloud, Link as LinkIcon } from "lucide-react";
+import { User, Key, Save, Camera, FileCheck, Loader2, Cloud, Link as LinkIcon, Eye, EyeOff } from "lucide-react";
 
 interface ProfilViewProps {
   currentUser: Petugas;
@@ -16,6 +16,7 @@ export const ProfilView: React.FC<ProfilViewProps> = ({
 }) => {
   const [nama, setNama] = useState(currentUser.nama);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [foto, setFoto] = useState(currentUser.foto || "");
   const [scanTtd, setScanTtd] = useState(currentUser.scan_ttd || "");
   const [tempatDibuat, setTempatDibuat] = useState(currentUser.tempat_dibuat || "Aceh Tamiang");
@@ -222,13 +223,23 @@ export const ProfilView: React.FC<ProfilViewProps> = ({
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Password Baru
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Kosongkan jika tidak ingin mengubah password"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-800 focus:ring-2 focus:ring-blue-500"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Kosongkan jika tidak ingin mengubah password"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 pr-10 text-xs text-slate-800 focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 focus:outline-none transition-colors"
+                  title={showPassword ? "Sembunyikan Password" : "Tampilkan Password"}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <div>
