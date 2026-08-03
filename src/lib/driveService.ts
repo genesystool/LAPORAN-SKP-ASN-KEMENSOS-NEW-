@@ -166,13 +166,18 @@ export async function getDriveFolderDetails(
   }
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
     const url = `https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,parents&supportsAllDrives=true`;
     const response = await fetch(url, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       if (response.status === 401) {
@@ -237,11 +242,15 @@ export async function listDriveFolders(
 
   if (activeWebhook) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       const res = await fetch(activeWebhook, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
         body: JSON.stringify({ action: "listFolders", parentId }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (res.ok) {
         const json = await res.json();
         if (json && (json.status === "success" || Array.isArray(json.folders)) && Array.isArray(json.folders)) {
@@ -273,12 +282,17 @@ export async function listDriveFolders(
       query
     )}&fields=files(id,name,parents)&pageSize=1000&orderBy=name&supportsAllDrives=true&includeItemsFromAllDrives=true`;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     const response = await fetch(url, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const err = await response.text();
@@ -298,7 +312,7 @@ export async function listDriveFolders(
     const data = await response.json();
     return data.files || [];
   } catch (err) {
-    throw err;
+    return [];
   }
 }
 
@@ -319,11 +333,17 @@ export async function listDriveFiles(
   // 1. Try listing via Webhook first if URL is configured (works on external hosting)
   if (activeWebhook) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
       const res = await fetch(activeWebhook, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
         body: JSON.stringify({ action: "listFiles", folderId }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+
       if (res.ok) {
         const json = await res.json();
         if (json && json.status === "success" && Array.isArray(json.files)) {
@@ -347,12 +367,17 @@ export async function listDriveFiles(
   )}&fields=files(id,name,mimeType,webViewLink,webContentLink,createdTime,size,iconLink)&pageSize=1000&orderBy=createdTime desc&supportsAllDrives=true&includeItemsFromAllDrives=true`;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     const response = await fetch(url, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const err = await response.text();
@@ -500,12 +525,17 @@ export async function uploadPdfViaAppsScriptWebhook(
 
   // Attempt 1: Direct client-side fetch (supports 302 redirects cleanly)
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout limit
+
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: payload,
       redirect: "follow",
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     const responseText = await res.text();
     let json: any = {};
@@ -519,7 +549,7 @@ export async function uploadPdfViaAppsScriptWebhook(
         responseText.includes("<!DOCTYPE")
       ) {
         throw new Error(
-          "Koneksi Google Apps Script gagal. Pastikan Web App disetel dengan Akses: 'Siapa saja (Anyone)' dan Publikasikan Ulang Versi Baru (New Version)."
+          "Koneksi Google Apps Script gagal. Pastikan Web App disetel dengan Akses: 'Siapa saja (Anyone)' dan Dipublikasikan Ulang (New Version)."
         );
       }
     }
@@ -542,6 +572,9 @@ export async function uploadPdfViaAppsScriptWebhook(
     // Attempt 2: Server-side proxy fallback (Bypasses all client browser CORS & hosting restrictions)
     try {
       onProgress?.(80, "Menggunakan server proxy untuk mengunggah...");
+      const proxyController = new AbortController();
+      const proxyTimeoutId = setTimeout(() => proxyController.abort(), 20000);
+
       const proxyRes = await fetch("/api/upload-drive-webhook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -552,7 +585,15 @@ export async function uploadPdfViaAppsScriptWebhook(
           base64Data: base64Data,
           mimeType: "application/pdf",
         }),
+        signal: proxyController.signal,
       });
+      clearTimeout(proxyTimeoutId);
+
+      const contentType = proxyRes.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        // If static hosting returned 404 HTML page instead of JSON API response
+        throw new Error(clientErr?.message || "Koneksi ke Webhook Apps Script gagal/timeout. Pastikan izin Web App 'Siapa saja' (Anyone).");
+      }
 
       const proxyJson = await proxyRes.json();
       if (proxyRes.ok && (proxyJson.status === "success" || proxyJson.fileUrl || proxyJson.fileId)) {
