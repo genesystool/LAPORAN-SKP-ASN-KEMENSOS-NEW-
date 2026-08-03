@@ -92,6 +92,22 @@ export interface FeaturePermissions {
   disableUserCopyTemplate?: boolean; // Matikan tombol Salin Template untuk User
 }
 
+export interface CoffeePackage {
+  id: string;
+  title: string;
+  badge?: string;
+  icon?: "coffee" | "clock" | "infinity" | "sparkles" | "gift";
+  descriptionList: string[];
+  priceLabel?: string;
+  priceValue: string;
+  pricePeriod?: string;
+  buttonText: string;
+  popular?: boolean;
+  enabled?: boolean;
+  gradient?: string;
+  contactUrl?: string;
+}
+
 export interface AppSettings {
   id?: string;
   kop_surat_url?: string;
@@ -104,6 +120,8 @@ export interface AppSettings {
   shared_drive_link?: string;
   apps_script_url?: string;
   feature_permissions?: FeaturePermissions;
+  show_coffee_packages?: boolean;
+  coffee_packages?: CoffeePackage[];
 }
 
 export interface ToastMessage {
