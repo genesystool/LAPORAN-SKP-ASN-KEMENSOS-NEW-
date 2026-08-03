@@ -1342,7 +1342,11 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
                               );
                             })()}
                             <p className="text-xs text-slate-800 line-clamp-2">
-                              {item.isi_kegiatan}
+                              {(() => {
+                                if (!item.isi_kegiatan) return "-";
+                                const doc = new DOMParser().parseFromString(item.isi_kegiatan, "text/html");
+                                return doc.body.textContent || item.isi_kegiatan;
+                              })()}
                             </p>
                           </td>
 
