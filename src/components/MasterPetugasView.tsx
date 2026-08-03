@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Petugas, ToastMessage } from "../types";
 import { compressImageFile } from "../lib/imageUtils";
-import { UserPlus, Edit2, Trash2, ShieldCheck, User, Loader2 } from "lucide-react";
+import { UserPlus, Edit2, Trash2, ShieldCheck, User, Loader2, Eye, EyeOff } from "lucide-react";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
 
 interface MasterPetugasViewProps {
@@ -23,6 +23,7 @@ export const MasterPetugasView: React.FC<MasterPetugasViewProps> = ({
   const [nip, setNip] = useState("");
   const [nama, setNama] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [level, setLevel] = useState<Petugas["level"]>("USER");
   const [status, setStatus] = useState<Petugas["status"]>("AKTIF");
   const [foto, setFoto] = useState("");
@@ -180,14 +181,24 @@ export const MasterPetugasView: React.FC<MasterPetugasViewProps> = ({
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Password {editId ? "(Kosongkan jika tak diubah)" : ""}
                 </label>
-                <input
-                  type="password"
-                  required={!editId}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={editId ? "••••••••" : "Password"}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required={!editId}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={editId ? "••••••••" : "Password"}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 pr-10 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 focus:outline-none transition-colors"
+                    title={showPassword ? "Sembunyikan Password" : "Tampilkan Password"}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
