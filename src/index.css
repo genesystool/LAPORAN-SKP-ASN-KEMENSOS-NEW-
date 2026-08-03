@@ -35,16 +35,21 @@
     min-height: auto !important;
   }
 
-  /* Prevent headings and report blocks from breaking awkwardly across page edges */
+  /* Prevent headings from breaking awkwardly across page edges */
   h1, h2, h3, h4, h5, h6 {
     break-after: avoid !important;
     page-break-after: avoid !important;
   }
 
-  .break-inside-avoid, .report-block {
+  .break-inside-avoid {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+  }
+
+  .report-block {
     margin-bottom: 1.25rem !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
   }
 
   .page-break-before {
