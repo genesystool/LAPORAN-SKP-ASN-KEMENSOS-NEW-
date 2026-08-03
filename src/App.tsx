@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   collection,
   onSnapshot,
@@ -657,156 +658,167 @@ export default function App() {
             </div>
           )}
 
-          {currentModule === "home" && (
-            <DashboardView
-              currentUser={currentUser}
-              kegiatanList={kegiatanList}
-              laporanList={laporanList}
-              petugasList={petugasList}
-              rencanaBulananList={rencanaBulananList}
-              onNavigate={handleNavigate}
-            />
-          )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={currentModule}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="w-full"
+            >
+              {currentModule === "home" && (
+                <DashboardView
+                  currentUser={currentUser}
+                  kegiatanList={kegiatanList}
+                  laporanList={laporanList}
+                  petugasList={petugasList}
+                  rencanaBulananList={rencanaBulananList}
+                  onNavigate={handleNavigate}
+                />
+              )}
 
-          {currentModule === "kegiatan_harian" && (
-            <KegiatanHarianView
-              currentUser={currentUser}
-              kegiatanList={kegiatanList}
-              rencanaBulananList={rencanaBulananList}
-              rencanaHarianList={rencanaHarianList}
-              petugasList={petugasList}
-              modulP2k2List={modulP2k2List}
-              appSettings={appSettings}
-              isLicensed={isLicensed}
-              limitReached={limitReached}
-              onSaveKegiatan={handleSaveKegiatan}
-              onDeleteKegiatan={handleDeleteKegiatan}
-              onPrintReport={(keg) => setPrintingKegiatan(keg)}
-              addToast={addToast}
-              onNavigateToLisensi={() => handleNavigate("lisensi")}
-            />
-          )}
+              {currentModule === "kegiatan_harian" && (
+                <KegiatanHarianView
+                  currentUser={currentUser}
+                  kegiatanList={kegiatanList}
+                  rencanaBulananList={rencanaBulananList}
+                  rencanaHarianList={rencanaHarianList}
+                  petugasList={petugasList}
+                  modulP2k2List={modulP2k2List}
+                  appSettings={appSettings}
+                  isLicensed={isLicensed}
+                  limitReached={limitReached}
+                  onSaveKegiatan={handleSaveKegiatan}
+                  onDeleteKegiatan={handleDeleteKegiatan}
+                  onPrintReport={(keg) => setPrintingKegiatan(keg)}
+                  addToast={addToast}
+                  onNavigateToLisensi={() => handleNavigate("lisensi")}
+                />
+              )}
 
-          {currentModule === "cek_drive_files" && (
-            <CekDriveFilesView
-              currentUser={currentUser}
-              appSettings={appSettings}
-              petugasList={petugasList}
-              addToast={addToast}
-              onNavigate={handleNavigate}
-              onSaveAppSettings={handleSaveAppSettings}
-            />
-          )}
+              {currentModule === "cek_drive_files" && (
+                <CekDriveFilesView
+                  currentUser={currentUser}
+                  appSettings={appSettings}
+                  petugasList={petugasList}
+                  addToast={addToast}
+                  onNavigate={handleNavigate}
+                  onSaveAppSettings={handleSaveAppSettings}
+                />
+              )}
 
-          {currentModule === "rencana_bulanan" && (
-            <MasterBulananView
-              currentUser={currentUser}
-              appSettings={appSettings}
-              list={rencanaBulananList}
-              onSave={handleSaveRencanaBulanan}
-              onDelete={handleDeleteRencanaBulanan}
-              addToast={addToast}
-            />
-          )}
+              {currentModule === "rencana_bulanan" && (
+                <MasterBulananView
+                  currentUser={currentUser}
+                  appSettings={appSettings}
+                  list={rencanaBulananList}
+                  onSave={handleSaveRencanaBulanan}
+                  onDelete={handleDeleteRencanaBulanan}
+                  addToast={addToast}
+                />
+              )}
 
-          {currentModule === "rencana_harian" && (
-            <MasterHarianView
-              currentUser={currentUser}
-              appSettings={appSettings}
-              list={rencanaHarianList}
-              rencanaBulananList={rencanaBulananList}
-              onSave={handleSaveRencanaHarian}
-              onDelete={handleDeleteRencanaHarian}
-              addToast={addToast}
-            />
-          )}
+              {currentModule === "rencana_harian" && (
+                <MasterHarianView
+                  currentUser={currentUser}
+                  appSettings={appSettings}
+                  list={rencanaHarianList}
+                  rencanaBulananList={rencanaBulananList}
+                  onSave={handleSaveRencanaHarian}
+                  onDelete={handleDeleteRencanaHarian}
+                  addToast={addToast}
+                />
+              )}
 
-          {currentModule === "petugas" && currentUser.level === "ADMIN" && (
-            <MasterPetugasView
-              list={petugasList}
-              onSave={handleSavePetugas}
-              onDelete={handleDeletePetugas}
-              addToast={addToast}
-            />
-          )}
+              {currentModule === "petugas" && currentUser.level === "ADMIN" && (
+                <MasterPetugasView
+                  list={petugasList}
+                  onSave={handleSavePetugas}
+                  onDelete={handleDeletePetugas}
+                  addToast={addToast}
+                />
+              )}
 
-          {currentModule === "laporan" && (
-            <MasterLaporanView
-              currentUser={currentUser}
-              appSettings={appSettings}
-              list={laporanList}
-              rencanaBulananList={rencanaBulananList}
-              petugasList={petugasList}
-              onSave={handleSaveLaporan}
-              onDelete={handleDeleteLaporan}
-              addToast={addToast}
-            />
-          )}
+              {currentModule === "laporan" && (
+                <MasterLaporanView
+                  currentUser={currentUser}
+                  appSettings={appSettings}
+                  list={laporanList}
+                  rencanaBulananList={rencanaBulananList}
+                  petugasList={petugasList}
+                  onSave={handleSaveLaporan}
+                  onDelete={handleDeleteLaporan}
+                  addToast={addToast}
+                />
+              )}
 
-          {currentModule === "modul_p2k2" && (
-            <MasterP2K2View
-              currentUser={currentUser}
-              appSettings={appSettings}
-              list={modulP2k2List}
-              onSave={handleSaveModulP2k2}
-              onDelete={handleDeleteModulP2k2}
-              addToast={addToast}
-            />
-          )}
+              {currentModule === "modul_p2k2" && (
+                <MasterP2K2View
+                  currentUser={currentUser}
+                  appSettings={appSettings}
+                  list={modulP2k2List}
+                  onSave={handleSaveModulP2k2}
+                  onDelete={handleDeleteModulP2k2}
+                  addToast={addToast}
+                />
+              )}
 
-          {currentModule === "lisensi" && (
-            <LisensiView
-              currentUser={currentUser}
-              isLicensed={isLicensed}
-              kegiatanCount={myKegiatanCount}
-              petugasList={petugasList}
-              lisensiList={lisensiList}
-              appSettings={appSettings}
-              onActivateLicense={handleActivateLicense}
-              onDeleteLicense={handleDeleteLicense}
-              onSaveAppSettings={handleSaveAppSettings}
-              addToast={addToast}
-            />
-          )}
+              {currentModule === "lisensi" && (
+                <LisensiView
+                  currentUser={currentUser}
+                  isLicensed={isLicensed}
+                  kegiatanCount={myKegiatanCount}
+                  petugasList={petugasList}
+                  lisensiList={lisensiList}
+                  appSettings={appSettings}
+                  onActivateLicense={handleActivateLicense}
+                  onDeleteLicense={handleDeleteLicense}
+                  onSaveAppSettings={handleSaveAppSettings}
+                  addToast={addToast}
+                />
+              )}
 
-          {currentModule === "backup_restore" && (
-            <BackupRestoreView
-              currentUser={currentUser}
-              petugasList={petugasList}
-              rencanaBulananList={rencanaBulananList}
-              rencanaHarianList={rencanaHarianList}
-              kegiatanList={kegiatanList}
-              laporanList={laporanList}
-              lisensiList={lisensiList}
-              appSettings={appSettings}
-              addToast={addToast}
-            />
-          )}
+              {currentModule === "backup_restore" && (
+                <BackupRestoreView
+                  currentUser={currentUser}
+                  petugasList={petugasList}
+                  rencanaBulananList={rencanaBulananList}
+                  rencanaHarianList={rencanaHarianList}
+                  kegiatanList={kegiatanList}
+                  laporanList={laporanList}
+                  lisensiList={lisensiList}
+                  appSettings={appSettings}
+                  addToast={addToast}
+                />
+              )}
 
-          {currentModule === "changelog" && (
-            <ChangelogView
-              currentUser={currentUser}
-              onNavigate={handleNavigate}
-            />
-          )}
+              {currentModule === "changelog" && (
+                <ChangelogView
+                  currentUser={currentUser}
+                  onNavigate={handleNavigate}
+                />
+              )}
 
-          {currentModule === "profil" && (
-            <ProfilView
-              currentUser={currentUser}
-              onUpdateProfile={handleUpdateProfile}
-              addToast={addToast}
-            />
-          )}
+              {currentModule === "profil" && (
+                <ProfilView
+                  currentUser={currentUser}
+                  onUpdateProfile={handleUpdateProfile}
+                  addToast={addToast}
+                />
+              )}
 
-          {currentModule === "tutorial" && (
-            <InteractiveTutorialView
-              currentUser={currentUser}
-              appSettings={appSettings}
-              onNavigate={handleNavigate}
-              onStartTour={() => setShowOnboardingTour(true)}
-              addToast={addToast}
-            />
-          )}
+              {currentModule === "tutorial" && (
+                <InteractiveTutorialView
+                  currentUser={currentUser}
+                  appSettings={appSettings}
+                  onNavigate={handleNavigate}
+                  onStartTour={() => setShowOnboardingTour(true)}
+                  addToast={addToast}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
 
