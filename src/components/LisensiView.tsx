@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Petugas, Lisensi, AppSettings, ToastMessage } from "../types";
+import { Petugas, Lisensi, AppSettings, ToastMessage, CoffeePackage } from "../types";
 import { compressImageFile } from "../lib/imageUtils";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
 import {
@@ -36,7 +36,64 @@ import {
   Code2,
   Cpu,
   HardDrive,
+  Eye,
+  EyeOff,
+  Plus,
 } from "lucide-react";
+
+const DEFAULT_COFFEE_PACKAGES: CoffeePackage[] = [
+  {
+    id: "trial",
+    title: "Nyobai Kopi Pahit",
+    badge: "Trial / Dasar",
+    icon: "coffee",
+    descriptionList: [
+      "Pemakaian aplikasi dibatasi 5 Laporan",
+      "Konsultasi Sambil ngopi (Ya)",
+      "Akses standar fitur dasar",
+    ],
+    priceLabel: "Harga",
+    priceValue: "Gratis",
+    pricePeriod: "",
+    buttonText: "Tanya Kede Kopi",
+    popular: false,
+    enabled: true,
+  },
+  {
+    id: "langganan",
+    title: "Langganan Kopi (Populer)",
+    badge: "Paling Populer",
+    icon: "clock",
+    descriptionList: [
+      "Fitur Bebas Ngopi & Laporan",
+      "Layanan Ngopi bareng (Ya)",
+      "Aktif Akun Sesuai Gelas Kopi",
+    ],
+    priceLabel: "Harga mulai",
+    priceValue: "Seiklasnya",
+    pricePeriod: "/bulan",
+    buttonText: "Tanya Kede Kopi",
+    popular: true,
+    enabled: true,
+  },
+  {
+    id: "lifetime",
+    title: "Ngopi Unlimited (Lifetime)",
+    badge: "Akses Selamanya",
+    icon: "infinity",
+    descriptionList: [
+      "Fitur Unlimited Ngopi Berapa Gelas",
+      "Lifetime Ngobrol Sambil Ngopi",
+      "Konsultasi & Support Prioritas",
+    ],
+    priceLabel: "Sekali Bayar",
+    priceValue: "Rp 200.000",
+    pricePeriod: "/Tahun",
+    buttonText: "Tanya Kede Kopi",
+    popular: false,
+    enabled: true,
+  },
+];
 
 interface LisensiViewProps {
   currentUser: Petugas;
@@ -66,7 +123,7 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
   const isAdmin = currentUser.level === "ADMIN";
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"user" | "keygen" | "kop" | "fitur" | "versi">("user");
+  const [activeTab, setActiveTab] = useState<"user" | "keygen" | "kop" | "fitur" | "versi" | "kopi">("user");
 
   const [showContactModal, setShowContactModal] = useState(false);
 
@@ -113,6 +170,21 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
   );
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
 
+  // Coffee Packages State (Admin Configurable & Show/Hide Toggle)
+  const [showCoffeePackages, setShowCoffeePackages] = useState<boolean>(
+    appSettings.show_coffee_packages !== false
+  );
+  const [coffeePackages, setCoffeePackages] = useState<CoffeePackage[]>(() => {
+    if (appSettings.coffee_packages && appSettings.coffee_packages.length > 0) {
+      return appSettings.coffee_packages;
+    }
+    return DEFAULT_COFFEE_PACKAGES;
+  });
+  const [editingPackage, setEditingPackage] = useState<CoffeePackage | null>(null);
+  const [isEditingModalOpen, setIsEditingModalOpen] = useState(false);
+  const [isSavingCoffeeSettings, setIsSavingCoffeeSettings] = useState(false);
+  const [newFeatureText, setNewFeatureText] = useState("");
+
   useEffect(() => {
     if (appSettings) {
       if (appSettings.kop_mode) setKopMode(appSettings.kop_mode);
@@ -128,6 +200,13 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
         setDisableUserPrintPdf(!!appSettings.feature_permissions.disableUserPrintPdf);
         setDisableUserUploadDrive(!!appSettings.feature_permissions.disableUserUploadDrive);
         setDisableUserCopyTemplate(!!appSettings.feature_permissions.disableUserCopyTemplate);
+      }
+
+      if (appSettings.show_coffee_packages !== undefined) {
+        setShowCoffeePackages(appSettings.show_coffee_packages);
+      }
+      if (appSettings.coffee_packages && appSettings.coffee_packages.length > 0) {
+        setCoffeePackages(appSettings.coffee_packages);
       }
     }
   }, [appSettings]);
@@ -242,6 +321,65 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
     }
   };
 
+  // Save Coffee Settings (Toggle show/hide & package list)
+  const handleSaveCoffeeSettings = async (
+    updatedShow?: boolean,
+    updatedPackages?: CoffeePackage[]
+  ) => {
+    if (!onSaveAppSettings) return;
+
+    const showVal = updatedShow !== undefined ? updatedShow : showCoffeePackages;
+    const pkgList = updatedPackages || coffeePackages;
+
+    setIsSavingCoffeeSettings(true);
+    try {
+      const ok = await onSaveAppSettings({
+        show_coffee_packages: showVal,
+        coffee_packages: pkgList,
+      });
+      if (ok) {
+        addToast("success", "Pengaturan Paket Bayarin Kopi berhasil disimpan!");
+      } else {
+        addToast("error", "Gagal menyimpan pengaturan Paket Kopi!");
+      }
+    } finally {
+      setIsSavingCoffeeSettings(false);
+    }
+  };
+
+  const handleSavePackageModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPackage) return;
+
+    let updatedList: CoffeePackage[];
+    const exists = coffeePackages.some((p) => p.id === editingPackage.id);
+
+    if (exists) {
+      updatedList = coffeePackages.map((p) => (p.id === editingPackage.id ? editingPackage : p));
+    } else {
+      updatedList = [...coffeePackages, editingPackage];
+    }
+
+    setCoffeePackages(updatedList);
+    setIsEditingModalOpen(false);
+    setEditingPackage(null);
+
+    await handleSaveCoffeeSettings(showCoffeePackages, updatedList);
+  };
+
+  const handleDeletePackage = async (id: string) => {
+    if (!confirm("Apakah Anda yakin ingin menghapus paket kopi ini?")) return;
+    const updatedList = coffeePackages.filter((p) => p.id !== id);
+    setCoffeePackages(updatedList);
+    await handleSaveCoffeeSettings(showCoffeePackages, updatedList);
+  };
+
+  const handleResetDefaultPackages = async () => {
+    if (!confirm("Kembalikan paket kopi ke susunan standar bawaan?")) return;
+    setCoffeePackages(DEFAULT_COFFEE_PACKAGES);
+    await handleSaveCoffeeSettings(showCoffeePackages, DEFAULT_COFFEE_PACKAGES);
+  };
+
   // Filtered Petugas for Keygen Table
   const filteredPetugas = petugasList.filter(
     (p) =>
@@ -294,6 +432,14 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
               }`}
             >
               <Sliders className="w-3.5 h-3.5 text-indigo-600" /> Kontrol Tombol User
+            </button>
+            <button
+              onClick={() => setActiveTab("kopi")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === "kopi" ? "bg-white text-slate-900 shadow-xs font-bold" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Coffee className="w-3.5 h-3.5 text-amber-600" /> Paket Kopi
             </button>
             <button
               onClick={() => setActiveTab("versi")}
@@ -352,140 +498,144 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
             )}
           </div>
 
-          {/* Pricing Section */}
-          <div className="space-y-4 pt-4">
-            <div className="text-center space-y-1">
-              <h2 className="text-lg font-bold text-slate-800">
-                Pilihan Paket Bayarin Kopi
-              </h2>
-              <p className="text-xs text-slate-500">
-                Pilih paket yang sesuai untuk membuka akses penuh tanpa batas
-              </p>
+          {/* Pricing Section (Paket Bayarin Kopi) */}
+          {(!showCoffeePackages && !isAdmin) ? null : (
+            <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+              {showCoffeePackages === false && isAdmin && (
+                <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 dark:text-amber-200 text-xs">
+                  <div className="flex items-center gap-2">
+                    <EyeOff className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>
+                      Pilihan Paket Bayarin Kopi saat ini <strong>DISEMBUNYIKAN</strong> dari tampilan petugas biasa.
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowCoffeePackages(true);
+                      handleSaveCoffeeSettings(true, coffeePackages);
+                    }}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition-colors text-xs whitespace-nowrap self-start sm:self-auto shadow-xs"
+                  >
+                    Tampilkan ke User
+                  </button>
+                </div>
+              )}
+
+              {(showCoffeePackages || isAdmin) && (
+                <>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="space-y-1">
+                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <Coffee className="w-5 h-5 text-amber-600" />
+                        Pilihan Paket Bayarin Kopi
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        Pilih paket yang sesuai untuk membuka akses penuh tanpa batas
+                      </p>
+                    </div>
+
+                    {isAdmin && (
+                      <button
+                        onClick={() => setActiveTab("kopi")}
+                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors self-start sm:self-auto border border-indigo-200"
+                      >
+                        <Sliders className="w-3.5 h-3.5" />
+                        Kelola Paket (Admin)
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {coffeePackages
+                      .filter((pkg) => pkg.enabled !== false)
+                      .map((pkg) => {
+                        const IconComp =
+                          pkg.icon === "clock"
+                            ? Clock
+                            : pkg.icon === "infinity"
+                            ? InfinityIcon
+                            : pkg.icon === "sparkles"
+                            ? Sparkles
+                            : Coffee;
+
+                        return (
+                          <div
+                            key={pkg.id}
+                            className={`bg-white rounded-2xl shadow-md border overflow-hidden flex flex-col hover:-translate-y-1 transition-transform duration-200 relative ${
+                              pkg.popular
+                                ? "border-blue-500 shadow-blue-100"
+                                : "border-slate-200"
+                            }`}
+                          >
+                            {pkg.popular && (
+                              <div className="bg-blue-600 text-white text-[11px] font-bold py-1.5 px-3 text-center uppercase tracking-wider flex items-center justify-center gap-1">
+                                <Sparkles className="w-3.5 h-3.5" /> {pkg.badge || "Langganan Kopi (Populer)"}
+                              </div>
+                            )}
+                            {!pkg.popular && (
+                              <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-3 text-center text-white font-bold text-xs uppercase tracking-wide">
+                                {pkg.title}
+                              </div>
+                            )}
+
+                            <div className="p-6 flex-1 flex flex-col justify-between space-y-6">
+                              <div className="space-y-4">
+                                <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto shadow-xs">
+                                  <IconComp className="w-8 h-8" />
+                                </div>
+                                {pkg.popular && (
+                                  <h3 className="text-base font-extrabold text-slate-800 text-center">
+                                    {pkg.title}
+                                  </h3>
+                                )}
+                                <ul className="space-y-2 text-xs text-slate-600">
+                                  {pkg.descriptionList.map((desc, idx) => (
+                                    <li key={idx} className="flex items-start gap-2">
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                      <span>{desc}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+
+                              <div className="text-center pt-4 border-t border-slate-100">
+                                {pkg.priceLabel && (
+                                  <p className="text-[11px] text-slate-400">{pkg.priceLabel}</p>
+                                )}
+                                <p className="text-xl font-extrabold text-slate-800">
+                                  {pkg.priceValue}{" "}
+                                  {pkg.pricePeriod && (
+                                    <span className="text-xs font-normal text-slate-500">
+                                      {pkg.pricePeriod}
+                                    </span>
+                                  )}
+                                </p>
+                                <button
+                                  onClick={() => {
+                                    if (pkg.contactUrl) {
+                                      window.open(pkg.contactUrl, "_blank");
+                                    } else {
+                                      setShowContactModal(true);
+                                    }
+                                  }}
+                                  className={`w-full mt-4 py-2.5 font-semibold rounded-full text-xs shadow-xs transition-colors ${
+                                    pkg.popular
+                                      ? "bg-blue-600 hover:bg-blue-700 text-white"
+                                      : "bg-slate-800 hover:bg-slate-900 text-white"
+                                  }`}
+                                >
+                                  {pkg.buttonText || "Tanya Kede Kopi"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </>
+              )}
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Card 1: Trial */}
-              <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden flex flex-col hover:-translate-y-1 transition-transform duration-200">
-                <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-4 text-center text-white font-bold">
-                  Nyobai Kopi Pahit
-                </div>
-                <div className="p-6 flex-1 flex flex-col justify-between space-y-6">
-                  <div className="space-y-4">
-                    <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
-                      <Coffee className="w-8 h-8" />
-                    </div>
-                    <ul className="space-y-2 text-xs text-slate-600">
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span>Pemakaian aplikasi dibatasi <strong>5 Laporan</strong></span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span>Konsultasi Sambil ngopi (Ya)</span>
-                      </li>
-                      <li className="flex items-center gap-2 text-slate-400 line-through">
-                        <X className="w-4 h-4 text-slate-300 shrink-0" />
-                        <span>Tanpa Batasan Input</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div className="text-center pt-4 border-t border-slate-100">
-                    <p className="text-[11px] text-slate-400">Harga</p>
-                    <p className="text-xl font-extrabold text-slate-800">Gratis</p>
-                    <button
-                      onClick={() => setShowContactModal(true)}
-                      className="w-full mt-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-full text-xs shadow-xs transition-colors"
-                    >
-                      Tanya Kede Kopi
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 2: Langganan */}
-              <div className="bg-white rounded-2xl shadow-lg border-2 border-blue-500 overflow-hidden flex flex-col hover:-translate-y-1 transition-transform duration-200 relative">
-                <div className="bg-blue-600 p-4 text-center text-white font-bold flex items-center justify-center gap-2">
-                  <Sparkles className="w-4 h-4" /> Langganan Kopi (Populer)
-                </div>
-                <div className="p-6 flex-1 flex flex-col justify-between space-y-6">
-                  <div className="space-y-4">
-                    <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
-                      <Clock className="w-8 h-8" />
-                    </div>
-                    <ul className="space-y-2 text-xs text-slate-600">
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span>Fitur <strong>Bebas Ngopi & Laporan</strong></span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span>Layanan Ngopi bareng (Ya)</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span>Aktif Akun Sesuai Gelas Kopi</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div className="text-center pt-4 border-t border-slate-100">
-                    <p className="text-[11px] text-slate-400">Harga mulai</p>
-                    <p className="text-xl font-extrabold text-blue-700">
-                      Seiklasnya <span className="text-xs font-normal text-slate-500">/bulan</span>
-                    </p>
-                    <button
-                      onClick={() => setShowContactModal(true)}
-                      className="w-full mt-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full text-xs shadow-md transition-colors"
-                    >
-                      Tanya Kede Kopi
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 3: Lifetime */}
-              <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden flex flex-col hover:-translate-y-1 transition-transform duration-200">
-                <div className="bg-gradient-to-r from-indigo-800 to-purple-800 p-4 text-center text-white font-bold">
-                  Ngopi Unlimited (Lifetime)
-                </div>
-                <div className="p-6 flex-1 flex flex-col justify-between space-y-6">
-                  <div className="space-y-4">
-                    <div className="w-16 h-16 bg-purple-50 text-purple-600 rounded-full flex items-center justify-center mx-auto">
-                      <InfinityIcon className="w-8 h-8" />
-                    </div>
-                    <ul className="space-y-2 text-xs text-slate-600">
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span>Fitur <strong>Unlimited Ngopi Berapa Gelas</strong></span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span><strong>Lifetime</strong> Ngobrol Sambil Ngopi</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span>Konsultasi & Support Prioritas</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div className="text-center pt-4 border-t border-slate-100">
-                    <p className="text-[11px] text-slate-400">Sekali Bayar</p>
-                    <p className="text-xl font-extrabold text-indigo-900">
-                      Rp 200.000 <span className="text-xs font-normal text-slate-500">/Tahun</span>
-                    </p>
-                    <button
-                      onClick={() => setShowContactModal(true)}
-                      className="w-full mt-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-full text-xs shadow-xs transition-colors"
-                    >
-                      Tanya Kede Kopi
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -1418,6 +1568,479 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 6: PAKET KOPI (ADMIN) */}
+      {isAdmin && activeTab === "kopi" && (
+        <div className="space-y-6">
+          {/* Top Switch Banner */}
+          <div className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Coffee className="w-5 h-5 text-amber-600" />
+                <h2 className="text-base font-bold text-slate-800">
+                  Pengaturan Tampilan Paket Bayarin Kopi
+                </h2>
+              </div>
+              <p className="text-xs text-slate-500">
+                Atur apakah blok paket bayarin kopi ditampilkan di halaman lisensi atau disembunyikan seluruhnya dari user.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-4 shrink-0">
+              <label className="relative inline-flex items-center cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showCoffeePackages}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setShowCoffeePackages(val);
+                    handleSaveCoffeeSettings(val, coffeePackages);
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                <span className="ml-3 text-xs font-bold text-slate-800">
+                  {showCoffeePackages ? "Ditampilkan (ON)" : "Disembunyikan (OFF)"}
+                </span>
+              </label>
+
+              <button
+                onClick={handleResetDefaultPackages}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center gap-1.5"
+                title="Kembalikan ke paket bawaan"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Reset Default
+              </button>
+            </div>
+          </div>
+
+          {/* Action Header & Package Cards Grid */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <span>Daftar Paket Kopi Tersedia ({coffeePackages.length})</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setEditingPackage({
+                    id: `kopi_${Date.now()}`,
+                    title: "Paket Kopi Kustom",
+                    badge: "Spesial",
+                    icon: "coffee",
+                    descriptionList: ["Akses fitur penuh", "Dukungan konsultasi"],
+                    priceLabel: "Harga",
+                    priceValue: "Rp 50.000",
+                    pricePeriod: "/bulan",
+                    buttonText: "Tanya Kede Kopi",
+                    popular: false,
+                    enabled: true,
+                  });
+                  setIsEditingModalOpen(true);
+                }}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <PlusCircle className="w-4 h-4" />
+                Tambah Paket Baru
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {coffeePackages.map((pkg) => {
+                const IconComp =
+                  pkg.icon === "clock"
+                    ? Clock
+                    : pkg.icon === "infinity"
+                    ? InfinityIcon
+                    : pkg.icon === "sparkles"
+                    ? Sparkles
+                    : Coffee;
+
+                return (
+                  <div
+                    key={pkg.id}
+                    className={`bg-white rounded-2xl shadow-xs border p-5 flex flex-col justify-between space-y-4 relative ${
+                      pkg.enabled === false ? "opacity-60 bg-slate-50 border-dashed border-slate-300" : "border-slate-200"
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full ${
+                            pkg.enabled === false
+                              ? "bg-slate-200 text-slate-600"
+                              : pkg.popular
+                              ? "bg-blue-100 text-blue-700 border border-blue-200"
+                              : "bg-amber-100 text-amber-800 border border-amber-200"
+                          }`}
+                        >
+                          {pkg.enabled === false ? "Nonaktif" : pkg.badge || "Paket"}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => {
+                              setEditingPackage(pkg);
+                              setIsEditingModalOpen(true);
+                            }}
+                            className="p-1.5 hover:bg-slate-100 text-indigo-600 rounded-lg transition-colors"
+                            title="Edit Paket"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeletePackage(pkg.id)}
+                            className="p-1.5 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                            title="Hapus Paket"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center shrink-0">
+                          <IconComp className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-800">{pkg.title}</h4>
+                          <p className="text-xs text-indigo-700 font-extrabold">
+                            {pkg.priceValue} <span className="font-normal text-slate-500">{pkg.pricePeriod}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <ul className="space-y-1.5 text-xs text-slate-600 pt-2 border-t border-slate-100">
+                        {pkg.descriptionList.map((desc, idx) => (
+                          <li key={idx} className="flex items-start gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                            <span className="truncate">{desc}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Tombol: <strong>{pkg.buttonText}</strong></span>
+                      <button
+                        onClick={async () => {
+                          const updated = coffeePackages.map((p) =>
+                            p.id === pkg.id ? { ...p, enabled: p.enabled === false ? true : false } : p
+                          );
+                          setCoffeePackages(updated);
+                          await handleSaveCoffeeSettings(showCoffeePackages, updated);
+                        }}
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-md transition-colors ${
+                          pkg.enabled === false
+                            ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {pkg.enabled === false ? "Aktifkan" : "Sembunyikan"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Coffee Package Modal */}
+      {isEditingModalOpen && editingPackage && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl relative my-8">
+            <button
+              type="button"
+              onClick={() => {
+                setIsEditingModalOpen(false);
+                setEditingPackage(null);
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+              <div className="p-2.5 bg-amber-100 text-amber-700 rounded-xl">
+                <Coffee className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">
+                  {coffeePackages.some((p) => p.id === editingPackage.id)
+                    ? "Edit Paket Bayarin Kopi"
+                    : "Tambah Paket Bayarin Kopi Baru"}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Ubah rincian judul, harga, dan fitur pendukung paket kopi
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSavePackageModal} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Nama Paket Kopi
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingPackage.title}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, title: e.target.value })
+                    }
+                    placeholder="Contoh: Langganan Kopi"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Label Sub-Judul / Badge
+                  </label>
+                  <input
+                    type="text"
+                    value={editingPackage.badge || ""}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, badge: e.target.value })
+                    }
+                    placeholder="Contoh: Paling Populer"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Label Harga
+                  </label>
+                  <input
+                    type="text"
+                    value={editingPackage.priceLabel || ""}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, priceLabel: e.target.value })
+                    }
+                    placeholder="Contoh: Harga mulai"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Nominal / Nilai Harga
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingPackage.priceValue}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, priceValue: e.target.value })
+                    }
+                    placeholder="Contoh: Seiklasnya / Rp 50.000"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Satuan Periode
+                  </label>
+                  <input
+                    type="text"
+                    value={editingPackage.pricePeriod || ""}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, pricePeriod: e.target.value })
+                    }
+                    placeholder="Contoh: /bulan"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Teks Tombol Aksi
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingPackage.buttonText}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, buttonText: e.target.value })
+                    }
+                    placeholder="Contoh: Tanya Kede Kopi"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Ikon Paket
+                  </label>
+                  <select
+                    value={editingPackage.icon || "coffee"}
+                    onChange={(e) =>
+                      setEditingPackage({
+                        ...editingPackage,
+                        icon: e.target.value as any,
+                      })
+                    }
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white"
+                  >
+                    <option value="coffee">Coffee / Cangkir</option>
+                    <option value="clock">Clock / Jam Waktu</option>
+                    <option value="infinity">Infinity / Tanpa Batas</option>
+                    <option value="sparkles">Sparkles / Bintang</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Custom Link Kontak / WA (Opsional)
+                </label>
+                <input
+                  type="url"
+                  value={editingPackage.contactUrl || ""}
+                  onChange={(e) =>
+                    setEditingPackage({ ...editingPackage, contactUrl: e.target.value })
+                  }
+                  placeholder="Contoh: https://wa.me/6285270444156?text=Halo%20Admin"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Feature List Editor */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="block text-xs font-bold text-slate-700">
+                  Rincian Fitur / Keterangan
+                </label>
+                <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                  {editingPackage.descriptionList.map((item, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={item}
+                        onChange={(e) => {
+                          const updated = [...editingPackage.descriptionList];
+                          updated[idx] = e.target.value;
+                          setEditingPackage({ ...editingPackage, descriptionList: updated });
+                        }}
+                        className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-amber-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = editingPackage.descriptionList.filter((_, i) => i !== idx);
+                          setEditingPackage({ ...editingPackage, descriptionList: updated });
+                        }}
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Hapus baris ini"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="text"
+                    value={newFeatureText}
+                    onChange={(e) => setNewFeatureText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (newFeatureText.trim()) {
+                          setEditingPackage({
+                            ...editingPackage,
+                            descriptionList: [
+                              ...editingPackage.descriptionList,
+                              newFeatureText.trim(),
+                            ],
+                          });
+                          setNewFeatureText("");
+                        }
+                      }
+                    }}
+                    placeholder="Tambah poin fitur baru..."
+                    className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newFeatureText.trim()) {
+                        setEditingPackage({
+                          ...editingPackage,
+                          descriptionList: [
+                            ...editingPackage.descriptionList,
+                            newFeatureText.trim(),
+                          ],
+                        });
+                        setNewFeatureText("");
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Tambah
+                  </button>
+                </div>
+              </div>
+
+              {/* Toggles */}
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!editingPackage.popular}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, popular: e.target.checked })
+                    }
+                    className="rounded text-amber-600 focus:ring-amber-500"
+                  />
+                  <span className="font-semibold text-slate-700">
+                    Tandai Sebagai "Paling Populer"
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingPackage.enabled !== false}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, enabled: e.target.checked })
+                    }
+                    className="rounded text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span className="font-semibold text-slate-700">Status Aktif</span>
+                </label>
+              </div>
+
+              <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingModalOpen(false);
+                    setEditingPackage(null);
+                  }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-md transition-colors"
+                >
+                  Simpan Paket
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
