@@ -679,6 +679,7 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
           html2canvas: {
             scale: 2,
             useCORS: true,
+            allowTaint: true,
             logging: false,
             backgroundColor: "#ffffff",
             windowWidth: 718, // 190mm in px at 96dpi is ~718px
@@ -687,6 +688,13 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
               clonedDoc.body.classList.remove("dark");
               clonedDoc.documentElement.style.backgroundColor = "#ffffff";
               clonedDoc.body.style.backgroundColor = "#ffffff";
+
+              const images = Array.from(clonedDoc.querySelectorAll("img"));
+              images.forEach((img) => {
+                if (img.src && !img.src.startsWith("data:")) {
+                  img.crossOrigin = "anonymous";
+                }
+              });
 
               const styleTags = Array.from(clonedDoc.querySelectorAll("style"));
               styleTags.forEach((styleTag) => {
@@ -715,21 +723,59 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
           },
         };
 
-        const pdfBlob: Blob = await html2pdf().set(opt).from(element).output("blob");
-        zip.file(fileName, pdfBlob);
+        try {
+          const pdfBlob: Blob = await html2pdf().set(opt).from(element).output("blob");
+          if (pdfBlob && pdfBlob.size > 0) {
+            zip.file(fileName, pdfBlob);
+          }
+        } catch (itemErr) {
+          console.error(`Gagal membuat PDF untuk ${fileName}:`, itemErr);
+          try {
+            const fallbackOpt = {
+              ...opt,
+              html2canvas: { ...opt.html2canvas, scale: 1 },
+            };
+            const pdfBlob: Blob = await html2pdf().set(fallbackOpt).from(element).output("blob");
+            if (pdfBlob && pdfBlob.size > 0) {
+              zip.file(fileName, pdfBlob);
+            }
+          } catch (fallbackErr) {
+            console.error(`Fallback PDF gagal untuk ${fileName}:`, fallbackErr);
+          }
+        }
+
+        // Brief delay between renders to prevent canvas memory bottlenecks
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
       setPdfExportProgressText("Mengemas file ZIP...");
-      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const zipBlob = await zip.generateAsync(
+        {
+          type: "blob",
+          compression: "DEFLATE",
+          compressionOptions: { level: 6 },
+        },
+        (metadata) => {
+          setPdfExportProgressText(`Mengemas ZIP (${Math.round(metadata.percent)}%)...`);
+        }
+      );
+
       const zipFileName = `Rekap_Laporan_Kegiatan_${currentUser.nip || "ASN"}_${new Date().toISOString().split("T")[0]}.zip`;
 
+      const blobUrl = URL.createObjectURL(zipBlob);
       const link = document.createElement("a");
-      link.href = URL.createObjectURL(zipBlob);
+      link.href = blobUrl;
       link.download = zipFileName;
+      link.style.display = "none";
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+
+      setTimeout(() => {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+        URL.revokeObjectURL(blobUrl);
+      }, 20000);
 
       addToast(
         "success",
