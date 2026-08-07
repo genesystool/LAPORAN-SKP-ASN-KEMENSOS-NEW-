@@ -174,23 +174,44 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   const userTtd = petugas?.scan_ttd || "";
   const tempatDibuatLaporan = petugas?.tempat_dibuat?.trim() || "Aceh Tamiang";
 
+  const activeRbForTop =
+    rencanaBulanan ||
+    (kegiatan
+      ? (rencanaBulananList || []).find((rb) => rb.id === kegiatan.rencana_bulanan_id)
+      : null);
+
+  const effectiveTemplate =
+    laporanTemplate ||
+    (activeRbForTop
+      ? (laporanList || []).find(
+          (l) =>
+            Number(l.nomor_rhk) === Number(activeRbForTop.no_rhk) &&
+            (l.petugas_id === petugas?.id || (petugas?.nip && l.petugas_id === petugas.nip))
+        ) ||
+        (laporanList || []).find(
+          (l) => Number(l.nomor_rhk) === Number(activeRbForTop.no_rhk) && l.petugas_id === kegiatan?.petugas_id
+        ) ||
+        (laporanList || []).find((l) => Number(l.nomor_rhk) === Number(activeRbForTop.no_rhk)) ||
+        null
+      : null);
+
   const umum =
-    laporanTemplate?.umum ||
+    effectiveTemplate?.umum ||
     "Laporan ini disusun sebagai bentuk pertanggungjawaban pelaksanaan tugas operasional ASN dalam rangka meningkatkan akuntabilitas dan efektivitas pelayanan publik.";
   const maksud =
-    laporanTemplate?.maksud_tujuan ||
+    effectiveTemplate?.maksud_tujuan ||
     "Maksud kegiatan ini adalah untuk memastikan seluruh tahapan pendampingan berjalan sesuai standar operasional baku dan mencapai target kinerja yang ditetapkan.";
   const ruang =
-    laporanTemplate?.ruang_lingkup ||
+    effectiveTemplate?.ruang_lingkup ||
     "Ruang lingkup laporan meliputi persiapan administrasi, koordinasi instansi, serta verifikasi lapangan di wilayah kerja.";
   const dasar =
-    laporanTemplate?.dasar ||
+    effectiveTemplate?.dasar ||
     "1. Peraturan Menteri tentang Standar Pelayanan Operasional.\n2. Surat Perintah Tugas Kepala Dinas/Instansi.";
   const simpulan =
-    laporanTemplate?.simpulan ||
+    effectiveTemplate?.simpulan ||
     "Kegiatan pendampingan telah terlaksana dengan lancar dan memberikan kontribusi positif bagi indikator kinerja organisasi.";
   const penutup =
-    laporanTemplate?.penutup ||
+    effectiveTemplate?.penutup ||
     "Demikian laporan pelaksanaan kegiatan ini dibuat dengan sebenarnya untuk dipergunakan sebagaimana mestinya.";
 
   const formattedDate = formatIndonesianDate(kegiatan.tanggal);
@@ -374,6 +395,13 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
 
     const paper = clonedDoc.getElementById("report-paper");
     if (paper) {
+      paper.classList.remove("hidden");
+      paper.style.display = "block";
+      paper.style.visibility = "visible";
+      paper.style.opacity = "1";
+      paper.style.position = "relative";
+      paper.style.left = "0";
+      paper.style.top = "0";
       paper.style.boxShadow = "none";
       paper.style.border = "none";
       paper.style.outline = "none";
@@ -385,11 +413,27 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       paper.style.transform = "none";
       paper.classList.remove("p-6", "p-8", "p-12", "md:p-8", "md:p-14", "md:p-20", "shadow-2xl");
 
+      let p: HTMLElement | null = paper.parentElement;
+      while (p && p !== clonedDoc.body) {
+        p.classList.remove("hidden");
+        p.style.display = "block";
+        p.style.visibility = "visible";
+        p.style.opacity = "1";
+        p = p.parentElement;
+      }
+
       const kopWrapper = paper.firstElementChild as HTMLElement;
       if (kopWrapper) {
         kopWrapper.style.boxSizing = "border-box";
       }
     }
+
+    const images = Array.from(clonedDoc.querySelectorAll("img"));
+    images.forEach((img) => {
+      if (img.src && !img.src.startsWith("data:")) {
+        img.crossOrigin = "anonymous";
+      }
+    });
 
     const reportBlocks = clonedDoc.querySelectorAll(".signature-box, .photo-item, .prevent-break");
     reportBlocks.forEach((block) => {
@@ -419,6 +463,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       html2canvas: {
         scale: 2,
         useCORS: true,
+        allowTaint: false,
         logging: false,
         backgroundColor: "#ffffff",
         onclone: (clonedDoc: Document) => {
@@ -578,6 +623,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
         html2canvas: {
           scale: 2,
           useCORS: true,
+          allowTaint: false,
           logging: false,
           backgroundColor: "#ffffff",
           onclone: (clonedDoc: Document) => {
@@ -2085,10 +2131,18 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
         style={{
           zoom: `${effectiveScalePercent}%`,
           transformOrigin: "top center",
+          ...(activePreviewTab === "pdf"
+            ? {
+                position: "fixed",
+                left: "-9999px",
+                top: "0px",
+                opacity: 1,
+                pointerEvents: "none",
+                zIndex: -999,
+              }
+            : {}),
         }}
-        className={`w-full bg-white shadow-2xl origin-top ${getPaperDimensionsClass()} ${getMarginClass()} ${getFontScaleClass()} text-slate-900 font-serif print:p-0 print:shadow-none print:max-w-none print:w-full transition-all duration-200 ${
-          activePreviewTab === "pdf" ? "hidden print:block" : ""
-        }`}
+        className={`w-full bg-white shadow-2xl origin-top ${getPaperDimensionsClass()} ${getMarginClass()} ${getFontScaleClass()} text-slate-900 font-serif print:p-0 print:shadow-none print:max-w-none print:w-full transition-all duration-200`}
       >
         {itemsToRender.map((kegItem, kegIdx) => {
           const parentRb =
@@ -2099,9 +2153,28 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
             (rencanaHarianList || []).find((rh) => rh.id === kegItem.rencana_harian_id) ||
             (kegItem.id === kegiatan?.id ? rencanaHarian : null);
 
+          const officerForKeg =
+            (petugasList || []).find(
+              (p) => p.id === kegItem.petugas_id || (p.nip && p.nip === kegItem.petugas_id)
+            ) || petugas;
+
           const lapTemplate =
-            (laporanList || []).find((l) => l.nomor_rhk === parentRb?.no_rhk) ||
-            (kegItem.id === kegiatan?.id ? laporanTemplate : null);
+            (laporanList || []).find(
+              (l) =>
+                Number(l.nomor_rhk) === Number(parentRb?.no_rhk) &&
+                (l.petugas_id === officerForKeg?.id || (officerForKeg?.nip && l.petugas_id === officerForKeg.nip))
+            ) ||
+            (laporanList || []).find(
+              (l) => Number(l.nomor_rhk) === Number(parentRb?.no_rhk) && l.petugas_id === kegItem.petugas_id
+            ) ||
+            (laporanList || []).find(
+              (l) =>
+                Number(l.nomor_rhk) === Number(parentRb?.no_rhk) &&
+                (l.petugas_id === petugas?.id || (petugas?.nip && l.petugas_id === petugas.nip))
+            ) ||
+            (kegItem.id === kegiatan?.id ? laporanTemplate : null) ||
+            (laporanList || []).find((l) => Number(l.nomor_rhk) === Number(parentRb?.no_rhk)) ||
+            null;
 
           const rkTitle = parentRb?.rencana_kerja || "PELAKSANAAN TUGAS OPERASIONAL";
           const formattedDate = formatIndonesianDate(kegItem.tanggal);
