@@ -40,9 +40,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Menu className="w-5 h-5" />
         </button>
         <div>
-          <h1 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest hidden sm:block">
-            LAPORAN SKP ONLINE
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">
+              LAPORAN SKP ONLINE
+            </h1>
+            <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 rounded border border-amber-300/50 dark:border-amber-700/50 shrink-0">
+              v2.6.1
+            </span>
+          </div>
           <p className="text-xs text-slate-700 dark:text-slate-300 font-semibold hidden md:block">
             Develop By Genesystool
           </p>
