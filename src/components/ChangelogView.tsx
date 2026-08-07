@@ -41,40 +41,9 @@ export interface ReleaseVersion {
 
 export const APP_VERSIONS: ReleaseVersion[] = [
   {
-    version: "v2.6.1",
-    date: "7 Agustus 2026",
-    badge: "LATEST",
-    title: "Penamaan File PDF RHK Otomatis, Stabilisasi Ekspor ZIP Hosting & Banner Support",
-    description:
-      "Pembaruan versi 2.6.1 yang menghadirkan penamaan otomatis file PDF hasil ekspor ZIP berdasarkan kombinasi No RHK Bulanan, No RHK Harian, dan nomor urut independen, peningkatan kestabilan ekspor ZIP pada hosting Vercel, serta penyempurnaan tampilan banner Support.",
-    highlights: [
-      {
-        category: "FEATURE",
-        title: "Penamaan File PDF RHK dengan Nomor Urut Independen",
-        description:
-          "Penamaan file PDF ekspor ZIP kini secara tepat mengikuti format RHK.[No RB].[No RH].[No Urut] - [DD-MM-YYYY].pdf. Nomor urut akan otomatis dihitung ulang dari 1 untuk setiap kelompok RHK yang berbeda.",
-        icon: <Sparkles className="w-4 h-4 text-amber-500" />,
-      },
-      {
-        category: "FIX",
-        title: "Stabilisasi Download ZIP Laporan di Hosting Vercel",
-        description:
-          "Peningkatan performa rendering html2pdf, penanganan CORS image canvas, serta penggunaan Blob URL terisolasi untuk memastikan proses unduh ZIP berjalan lancar tanpa terhenti di lingkungan Vercel/Cloud Hosting.",
-        icon: <Zap className="w-4 h-4 text-emerald-500" />,
-      },
-      {
-        category: "ENHANCEMENT",
-        title: "Pembaruan Banner & Tombol Support Developer",
-        description:
-          "Pembaruan teks notifikasi dan navigasi menjadi 'Bantu Developer untuk mengembangkan aplikasi ini menjadi lebih baik' beserta tombol 'Support'.",
-        icon: <CheckCircle2 className="w-4 h-4 text-blue-500" />,
-      },
-    ],
-  },
-  {
     version: "v2.6.0",
     date: "29 Juli 2026",
-    badge: "STABLE",
+    badge: "LATEST",
     title: "Format Word Editable, Restriksi Admin Webhook & Menu Perubahan Aplikasi",
     description:
       "Pembaruan utama yang menambahkan dukungan ekspor laporan ke format Word (.DOC) yang dapat diedit, penguncian keamanan webhook Google Drive khusus Admin, serta pelacak versi aplikasi.",
@@ -259,7 +228,7 @@ export const ChangelogView: React.FC<ChangelogViewProps> = ({
             </div>
             <div className="flex items-center gap-2.5">
               <span className="text-2xl font-black font-mono text-amber-400">
-                {APP_VERSIONS[0].version}
+                v2.6.0
               </span>
               <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-[10px] font-bold rounded-full border border-emerald-500/30 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" /> LATEST
@@ -267,7 +236,7 @@ export const ChangelogView: React.FC<ChangelogViewProps> = ({
             </div>
             <div className="text-[11px] text-slate-300 font-medium flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-slate-400" />
-              <span>Diperbarui: {APP_VERSIONS[0].date}</span>
+              <span>Diperbarui: 29 Juli 2026</span>
             </div>
           </div>
         </div>
