@@ -391,6 +391,13 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       }
     }
 
+    const images = Array.from(clonedDoc.querySelectorAll("img"));
+    images.forEach((img) => {
+      if (img.src && !img.src.startsWith("data:")) {
+        img.crossOrigin = "anonymous";
+      }
+    });
+
     const reportBlocks = clonedDoc.querySelectorAll(".signature-box, .photo-item, .prevent-break");
     reportBlocks.forEach((block) => {
       const htmlBlock = block as HTMLElement;
@@ -419,6 +426,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       html2canvas: {
         scale: 2,
         useCORS: true,
+        allowTaint: true,
         logging: false,
         backgroundColor: "#ffffff",
         onclone: (clonedDoc: Document) => {
@@ -578,6 +586,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
         html2canvas: {
           scale: 2,
           useCORS: true,
+          allowTaint: true,
           logging: false,
           backgroundColor: "#ffffff",
           onclone: (clonedDoc: Document) => {
