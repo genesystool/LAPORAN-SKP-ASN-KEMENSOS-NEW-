@@ -679,45 +679,14 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
           html2canvas: {
             scale: 2,
             useCORS: true,
-            allowTaint: false,
             logging: false,
             backgroundColor: "#ffffff",
             windowWidth: 718, // 190mm in px at 96dpi is ~718px
             onclone: (clonedDoc: Document) => {
-              const targetEl = clonedDoc.getElementById(`export-single-paper-${kegItem.id}`);
-              if (targetEl) {
-                targetEl.style.display = "block";
-                targetEl.style.visibility = "visible";
-                targetEl.style.opacity = "1";
-                targetEl.style.position = "relative";
-                targetEl.style.left = "0";
-                targetEl.style.top = "0";
-
-                let p: HTMLElement | null = targetEl.parentElement;
-                while (p && p !== clonedDoc.body) {
-                  p.style.display = "block";
-                  p.style.visibility = "visible";
-                  p.style.opacity = "1";
-                  p.style.pointerEvents = "auto";
-                  p = p.parentElement;
-                }
-              }
-
               clonedDoc.documentElement.classList.remove("dark");
               clonedDoc.body.classList.remove("dark");
               clonedDoc.documentElement.style.backgroundColor = "#ffffff";
               clonedDoc.body.style.backgroundColor = "#ffffff";
-
-              const images = Array.from(clonedDoc.querySelectorAll("img"));
-              images.forEach((img) => {
-                if (img.src && !img.src.startsWith("data:")) {
-                  img.crossOrigin = "anonymous";
-                  img.onerror = () => {
-                    // Fallback to transparent 1x1 GIF on broken cross-origin image so canvas export never fails
-                    img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-                  };
-                }
-              });
 
               const styleTags = Array.from(clonedDoc.querySelectorAll("style"));
               styleTags.forEach((styleTag) => {
@@ -746,67 +715,21 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
           },
         };
 
-        // Yield execution to browser UI thread before running heavy canvas render
-        await new Promise((resolve) => setTimeout(resolve, 120));
-
-        try {
-          const pdfBlob: Blob = await html2pdf().set(opt).from(element).output("blob");
-          if (pdfBlob && pdfBlob.size > 0) {
-            zip.file(fileName, pdfBlob);
-          }
-        } catch (itemErr) {
-          console.error(`Gagal membuat PDF untuk ${fileName}:`, itemErr);
-          try {
-            const fallbackOpt = {
-              ...opt,
-              html2canvas: { ...opt.html2canvas, scale: 1 },
-            };
-            const pdfBlob: Blob = await html2pdf().set(fallbackOpt).from(element).output("blob");
-            if (pdfBlob && pdfBlob.size > 0) {
-              zip.file(fileName, pdfBlob);
-            }
-          } catch (fallbackErr) {
-            console.error(`Fallback PDF gagal untuk ${fileName}:`, fallbackErr);
-          }
-        }
-
-        // Delay between renders to allow browser event loop to paint & prevent UI freeze
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-
-      const generatedFilesCount = Object.keys(zip.files).length;
-      if (generatedFilesCount === 0) {
-        throw new Error("Tidak ada file PDF yang berhasil dibuat. Periksa data kegiatan Anda.");
+        const pdfBlob: Blob = await html2pdf().set(opt).from(element).output("blob");
+        zip.file(fileName, pdfBlob);
       }
 
       setPdfExportProgressText("Mengemas file ZIP...");
-      const zipBlob = await zip.generateAsync(
-        {
-          type: "blob",
-          compression: "DEFLATE",
-          compressionOptions: { level: 6 },
-        },
-        (metadata) => {
-          setPdfExportProgressText(`Mengemas ZIP (${Math.round(metadata.percent)}%)...`);
-        }
-      );
-
+      const zipBlob = await zip.generateAsync({ type: "blob" });
       const zipFileName = `Rekap_Laporan_Kegiatan_${currentUser.nip || "ASN"}_${new Date().toISOString().split("T")[0]}.zip`;
 
-      const blobUrl = URL.createObjectURL(zipBlob);
       const link = document.createElement("a");
-      link.href = blobUrl;
+      link.href = URL.createObjectURL(zipBlob);
       link.download = zipFileName;
-      link.style.display = "none";
       document.body.appendChild(link);
       link.click();
-
-      setTimeout(() => {
-        if (document.body.contains(link)) {
-          document.body.removeChild(link);
-        }
-        URL.revokeObjectURL(blobUrl);
-      }, 20000);
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
 
       addToast(
         "success",
@@ -1927,18 +1850,7 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
       )}
 
       {/* Hidden Printable Container for Bulk PDF Export in Official Report Format */}
-      <div
-        id="pdf-export-hidden-wrapper"
-        style={{
-          position: "fixed",
-          left: "-9999px",
-          top: "-9999px",
-          opacity: 1,
-          visibility: "visible",
-          pointerEvents: "none",
-          zIndex: -9999,
-        }}
-      >
+      <div className="fixed -left-[9999px] -top-[9999px] pointer-events-none opacity-0 overflow-hidden">
         <div
           id="export-all-pdf-paper"
           className="w-[210mm] bg-white text-slate-900 p-[12mm] font-serif text-[11pt] leading-relaxed"
