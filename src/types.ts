@@ -111,6 +111,7 @@ export interface CoffeePackage {
 export interface AppSettings {
   id?: string;
   kop_surat_url?: string;
+  favicon_url?: string;
   kop_mode?: "image" | "text" | "auto";
   instansi_header?: string;
   sub_header?: string;
