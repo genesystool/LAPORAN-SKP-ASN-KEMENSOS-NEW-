@@ -49,20 +49,6 @@ import {
 import { AppsScriptGuideModal } from "./AppsScriptGuideModal";
 // @ts-ignore
 import html2pdf from "html2pdf.js";
-import * as pdfjsLib from "pdfjs-dist";
-// @ts-ignore
-import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-
-// Set pdfjs worker URL using bundled Vite url or cdnjs fallback
-if (typeof window !== "undefined") {
-  try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      pdfWorker ||
-      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || "3.11.174"}/pdf.worker.min.js`;
-  } catch (err) {
-    console.warn("Could not set pdfjs workerSrc:", err);
-  }
-}
 import {
   uploadPdfToDrive,
   listDriveFolders,
@@ -102,12 +88,16 @@ const renderFormattedContent = (content: string | undefined | null) => {
 };
 
 interface PrintReportViewProps {
-  kegiatan: KegiatanHarian;
+  kegiatan?: KegiatanHarian | null;
+  kegiatanList?: KegiatanHarian[] | null;
   petugas: Petugas | null;
-  rencanaBulanan: RencanaBulanan | null;
+  rencanaBulanan?: RencanaBulanan | null;
+  rencanaBulananList?: RencanaBulanan[];
   rencanaHarian?: RencanaHarian | null;
   rencanaHarianList?: RencanaHarian[];
-  laporanTemplate: LaporanTemplate | null;
+  laporanTemplate?: LaporanTemplate | null;
+  laporanList?: LaporanTemplate[];
+  petugasList?: Petugas[];
   appSettings?: AppSettings;
   onSaveAppSettings?: (settings: Partial<AppSettings>) => Promise<boolean>;
   onUpdateProfile?: (updated: Partial<Petugas>) => Promise<boolean>;
@@ -117,11 +107,15 @@ interface PrintReportViewProps {
 
 export const PrintReportView: React.FC<PrintReportViewProps> = ({
   kegiatan,
+  kegiatanList,
   petugas,
   rencanaBulanan,
+  rencanaBulananList,
   rencanaHarian,
   rencanaHarianList,
   laporanTemplate,
+  laporanList,
+  petugasList,
   appSettings = {} as AppSettings,
   onSaveAppSettings,
   onUpdateProfile,
@@ -132,6 +126,15 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   const permissions = appSettings?.feature_permissions || {};
   const isUploadDriveDisabled = !isAdmin && !!permissions.disableUserUploadDrive;
 
+  // Normalized items to render
+  const itemsToRender: KegiatanHarian[] = React.useMemo(() => {
+    if (kegiatanList && kegiatanList.length > 0) return kegiatanList;
+    if (kegiatan) return [kegiatan];
+    return [];
+  }, [kegiatanList, kegiatan]);
+
+  const activeKegiatan = itemsToRender[0] || ({} as KegiatanHarian);
+
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isUploadingDrive, setIsUploadingDrive] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -141,9 +144,12 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   const [driveUploadError, setDriveUploadError] = useState<string | null>(null);
   const [showSettingsToolbar, setShowSettingsToolbar] = useState(true);
 
-  // Google PDF Viewer Modal State
+  // PDF Viewer Modal & Inline State
+  const [activePreviewTab, setActivePreviewTab] = useState<"html" | "pdf">("html");
   const [showPdfViewerModal, setShowPdfViewerModal] = useState(false);
   const [pdfPageDataUrls, setPdfPageDataUrls] = useState<string[]>([]);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string>("");
+  const [pdfViewerMode, setPdfViewerMode] = useState<"iframe" | "cards">("iframe");
   const [isPdfViewerLoading, setIsPdfViewerLoading] = useState(false);
   const [pdfViewerZoom, setPdfViewerZoom] = useState<number>(100);
 
@@ -163,17 +169,6 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       ? Math.max(30, Math.min(200, customScale || 100))
       : Number(scaleOption) || 100;
 
-  // Chunk photos into max 2 photos per page
-  const photoChunks = React.useMemo(() => {
-    const photos = kegiatan.foto_kegiatan1 || [];
-    const chunks: string[][] = [];
-    for (let i = 0; i < photos.length; i += 2) {
-      chunks.push(photos.slice(i, i + 2));
-    }
-    return chunks;
-  }, [kegiatan.foto_kegiatan1]);
-
-  const rkTitle = rencanaBulanan?.rencana_kerja || "PELAKSANAAN TUGAS OPERASIONAL";
   const userNama = petugas?.nama || "Siti Nurhaliza, S.STP";
   const userNip = petugas?.nip || "1995050512345678";
   const userTtd = petugas?.scan_ttd || "";
@@ -254,23 +249,45 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     }
   };
 
-  // Helper function to generate clean export filename following RHK Bulanan.RHK Harian and report date (e.g. RHK 1.2 - 24-07-2026.pdf)
+  // Helper function to generate clean export filename
   const getExportFileName = () => {
+    if (itemsToRender.length > 1) {
+      return `Rekap_Laporan_Kegiatan_${userNip}_${new Date().toISOString().split("T")[0]}.pdf`;
+    }
     const activeRh =
       rencanaHarian ||
       (rencanaHarianList
-        ? rencanaHarianList.find((rh) => rh.id === kegiatan.rencana_harian_id)
+        ? rencanaHarianList.find((rh) => rh.id === activeKegiatan.rencana_harian_id)
         : null);
 
-    const rhkBulananNo = rencanaBulanan?.no_rhk ?? laporanTemplate?.nomor_rhk ?? 1;
+    const activeRb =
+      rencanaBulanan ||
+      (rencanaBulananList
+        ? rencanaBulananList.find((rb) => rb.id === activeKegiatan.rencana_bulanan_id)
+        : null);
+
+    const rhkBulananNo = activeRb?.no_rhk ?? laporanTemplate?.nomor_rhk ?? 1;
     const rhkHarianNo = activeRh?.norhkharian ?? null;
 
-    let rhkString = `RHK ${rhkBulananNo}`;
-    if (rhkHarianNo !== null && rhkHarianNo !== undefined) {
-      rhkString = `RHK ${rhkBulananNo}.${rhkHarianNo}`;
+    let noUrut = 1;
+    if (kegiatanList && kegiatanList.length > 0 && activeKegiatan) {
+      const sameRhkItems = kegiatanList.filter(
+        (k) =>
+          k.rencana_bulanan_id === activeKegiatan.rencana_bulanan_id &&
+          k.rencana_harian_id === activeKegiatan.rencana_harian_id
+      );
+      const idx = sameRhkItems.findIndex((k) => k.id === activeKegiatan.id);
+      if (idx !== -1) {
+        noUrut = idx + 1;
+      }
     }
 
-    let dateStr = kegiatan.tanggal || "";
+    let rhkString = `RHK. ${rhkBulananNo}.${noUrut}`;
+    if (rhkHarianNo !== null && rhkHarianNo !== undefined) {
+      rhkString = `RHK. ${rhkBulananNo}.${rhkHarianNo}.${noUrut}`;
+    }
+
+    let dateStr = activeKegiatan.tanggal || "";
 
     // Convert YYYY-MM-DD to DD-MM-YYYY if needed
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
@@ -374,18 +391,18 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       }
     }
 
-    const reportBlocks = clonedDoc.querySelectorAll(".report-block");
+    const reportBlocks = clonedDoc.querySelectorAll(".signature-box, .photo-item, .prevent-break");
     reportBlocks.forEach((block) => {
       const htmlBlock = block as HTMLElement;
-      htmlBlock.style.breakInside = "auto";
-      htmlBlock.style.pageBreakInside = "auto";
+      htmlBlock.style.breakInside = "avoid";
+      htmlBlock.style.pageBreakInside = "avoid";
     });
   };
 
-  // Helper to generate rendered PDF page images with current paper settings via pdfjs-dist
-  const generatePdfPageImagesForViewer = async (): Promise<string[]> => {
+  // Helper to generate real PDF Blob URL using html2pdf
+  const generatePdfBlobUrl = async (): Promise<string> => {
     const element = document.getElementById("report-paper");
-    if (!element) return [];
+    if (!element) return "";
 
     let pdfMargin: [number, number, number, number] = [14.73, 15, 12, 15];
     if (marginPreset === "compact") pdfMargin = [14.73, 8, 8, 8];
@@ -413,72 +430,98 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     };
 
     try {
-      const arrayBuffer = await html2pdf().set(opt).from(element).output("arraybuffer");
-      if (!arrayBuffer) throw new Error("Gagal mengompresi PDF.");
-
-      const parsePdfTask = async () => {
-        const loadingTask = pdfjsLib.getDocument({
-          data: new Uint8Array(arrayBuffer),
-          cMapPacked: true,
-        });
-        const pdf = await loadingTask.promise;
-        const pageImages: string[] = [];
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-          const page = await pdf.getPage(pageNum);
-          const viewport = page.getViewport({ scale: 1.8 });
-          const canvas = document.createElement("canvas");
-          const context = canvas.getContext("2d");
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-
-          if (context) {
-            await page.render({
-              canvasContext: context,
-              viewport: viewport,
-            }).promise;
-            pageImages.push(canvas.toDataURL("image/png"));
-          }
-        }
-        return pageImages;
-      };
-
-      const timeoutPromise = new Promise<string[]>((_, reject) =>
-        setTimeout(() => reject(new Error("PDFJS Worker Timeout")), 7000)
-      );
-
-      return await Promise.race([parsePdfTask(), timeoutPromise]);
-    } catch (err) {
-      console.warn("pdfjsLib parsing failed/timed out, falling back to direct canvas capture:", err);
-      try {
-        const html2canvas = (await import("html2canvas")).default;
-        const canvas = await html2canvas(element, {
-          scale: 1.8,
-          useCORS: true,
-          logging: false,
-          backgroundColor: "#ffffff",
-          onclone: (clonedDoc: Document) => {
-            sanitizeCanvasForExport(clonedDoc);
-          },
-        });
-        if (canvas) {
-          return [canvas.toDataURL("image/png")];
-        }
-      } catch (fallbackErr) {
-        console.error("Direct canvas fallback failed:", fallbackErr);
+      const pdfBlob = await html2pdf().set(opt).from(element).output("blob");
+      if (pdfBlob) {
+        return URL.createObjectURL(pdfBlob);
       }
+    } catch (err) {
+      console.error("PDF Blob generation error:", err);
+    }
+    return "";
+  };
+
+  // Helper to generate rendered PDF page images with current paper settings via lightweight HTML2Canvas engine
+  const generatePdfPageImagesForViewer = async (): Promise<string[]> => {
+    const element = document.getElementById("report-paper");
+    if (!element) return [];
+
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+        onclone: (clonedDoc: Document) => {
+          sanitizeCanvasForExport(clonedDoc);
+        },
+      });
+
+      if (!canvas) return [];
+
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+
+      // Calculate A4/Letter/Folio page height aspect ratio in pixels
+      const a4Ratio = paperSize === "letter" ? 279.4 / 215.9 : paperSize === "folio" ? 330 / 215 : 297 / 210;
+      const pageHeightInPx = Math.floor(imgWidth * a4Ratio);
+
+      const pageImages: string[] = [];
+      let currentY = 0;
+
+      while (currentY < imgHeight) {
+        const sliceH = Math.min(pageHeightInPx, imgHeight - currentY);
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = imgWidth;
+        pageCanvas.height = pageHeightInPx;
+        const ctx = pageCanvas.getContext("2d");
+
+        if (ctx) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, imgWidth, pageHeightInPx);
+          ctx.drawImage(
+            canvas,
+            0,
+            currentY,
+            imgWidth,
+            sliceH,
+            0,
+            0,
+            imgWidth,
+            sliceH
+          );
+          pageImages.push(pageCanvas.toDataURL("image/png"));
+        }
+
+        currentY += pageHeightInPx;
+      }
+
+      return pageImages.length > 0 ? pageImages : [canvas.toDataURL("image/png")];
+    } catch (err) {
+      console.error("Direct HTML2Canvas PDF Preview rendering error:", err);
       return [];
     }
   };
 
   const handleOpenPdfViewer = async () => {
-    setShowPdfViewerModal(true);
+    setActivePreviewTab("pdf");
     setIsPdfViewerLoading(true);
     try {
-      const pageImages = await generatePdfPageImagesForViewer();
-      if (pageImages.length > 0) {
+      const [blobUrl, pageImages] = await Promise.all([
+        generatePdfBlobUrl(),
+        generatePdfPageImagesForViewer(),
+      ]);
+
+      if (blobUrl) {
+        if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl(blobUrl);
+      }
+      if (pageImages && pageImages.length > 0) {
         setPdfPageDataUrls(pageImages);
-      } else {
-        addToast("error", "Gagal menggenerate halaman PDF untuk preview.");
+      }
+
+      if (!blobUrl && (!pageImages || pageImages.length === 0)) {
+        addToast("error", "Gagal menggenerate file PDF untuk preview.");
       }
     } catch (err) {
       console.error("Failed to generate PDF for viewer:", err);
@@ -491,8 +534,15 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   const handleRefreshPdfViewer = async () => {
     setIsPdfViewerLoading(true);
     try {
-      const pageImages = await generatePdfPageImagesForViewer();
-      if (pageImages.length > 0) {
+      const [blobUrl, pageImages] = await Promise.all([
+        generatePdfBlobUrl(),
+        generatePdfPageImagesForViewer(),
+      ]);
+      if (blobUrl) {
+        if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl(blobUrl);
+      }
+      if (pageImages && pageImages.length > 0) {
         setPdfPageDataUrls(pageImages);
       }
     } catch (err) {
@@ -771,6 +821,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
 
   // Google Drive Folder Selector & Shared Link State
   const [showDriveModal, setShowDriveModal] = useState(false);
+  const [showInlineDriveTree, setShowInlineDriveTree] = useState(true);
 
   // Helper function to resolve current officer's private drive link (STRICTLY PRIVATE PER PETUGAS)
   const getPetugasPrivateDriveLink = (p?: Petugas | null) => {
@@ -788,6 +839,20 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
   useEffect(() => {
     const activeLink = getPetugasPrivateDriveLink(petugas);
     setSharedDriveLink(activeLink);
+
+    const extractedId = activeLink ? extractDriveFolderId(activeLink) : null;
+    if (extractedId) {
+      setDriveFolderStack([{ id: extractedId, name: "Folder Target Laporan" }]);
+      getDriveFolderDetails(extractedId, manualToken || undefined)
+        .then((details) => {
+          if (details?.name && details.name !== "Folder Target Drive") {
+            setDriveFolderStack([{ id: extractedId, name: details.name }]);
+          }
+        })
+        .catch(() => {});
+    } else {
+      setDriveFolderStack([{ id: "root", name: "Drive Utama (Root)" }]);
+    }
   }, [petugas?.id, petugas?.drive_link]);
 
   // Helper to get target Google Drive folder web URL
@@ -1312,7 +1377,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
               onClick={handleOpenPdfViewer}
               disabled={isGeneratingPdf || isPdfViewerLoading || isGeneratingDoc}
               className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer active:scale-95"
-              title="Buka Preview PDF dengan tampilan Google PDF Viewer resmi"
+              title="Buka Preview PDF dengan tampilan PDF Viewer"
             >
               {isPdfViewerLoading ? (
                 <>
@@ -1320,7 +1385,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                 </>
               ) : (
                 <>
-                  <Eye className="w-4 h-4 text-indigo-200" /> Preview PDF (Google Viewer)
+                  <Eye className="w-4 h-4 text-indigo-200" /> Preview PDF Viewer
                 </>
               )}
             </button>
@@ -1370,17 +1435,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
               )}
             </button>
 
-            {!isUploadDriveDisabled && (
-              <button
-                onClick={handleOpenDriveModal}
-                disabled={isGeneratingPdf || isUploadingDrive}
-                className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-sky-400 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95"
-                title="Upload Laporan ke Google Drive via folder link"
-              >
-                <CloudUpload className="w-4 h-4 text-sky-100" />
-                <span>Upload Laporan ke Google Drive</span>
-              </button>
-            )}
+
           </div>
         </div>
 
@@ -1420,6 +1475,184 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
             >
               Tutup
             </button>
+          </div>
+        )}
+
+        {/* Google Drive Target Folder Panel on Initial Preview Page */}
+        {!isUploadDriveDisabled && (
+          <div className="bg-sky-50/90 border border-sky-200 rounded-2xl p-4 space-y-3.5 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sky-200/80 pb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-sky-600 text-white flex items-center justify-center font-bold shadow-xs">
+                  <CloudUpload className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                    Folder Google Drive Target Laporan
+                  </h4>
+                  <p className="text-[11px] text-sky-800 font-medium">
+                    Laporan SKP akan tersimpan otomatis ke Folder Google Drive petugas ini.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {sharedDriveLink.trim() ? (
+                  <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-lg flex items-center gap-1 border border-emerald-300">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                    Folder Target Aktif
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-[11px] font-bold rounded-lg flex items-center gap-1 border border-amber-300">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                    Folder Belum Set
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Folder Link Input & Buttons */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 text-xs">
+              <div className="md:col-span-8 flex gap-2">
+                <input
+                  type="text"
+                  value={sharedDriveLink}
+                  onChange={(e) => setSharedDriveLink(e.target.value)}
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  className="flex-1 bg-white border border-sky-300 rounded-xl px-3 py-2 font-mono text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleApplySharedLink()}
+                  disabled={isApplyingSharedLink}
+                  className="px-3.5 py-2 bg-sky-700 hover:bg-sky-800 text-white font-bold rounded-xl flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                  title="Simpan Link Folder Google Drive"
+                >
+                  {isApplyingSharedLink ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>Simpan</span>
+                </button>
+              </div>
+
+              <div className="md:col-span-4 flex items-center gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={handleOpenDirectDriveFolder}
+                  className="flex-1 md:flex-initial px-3 py-2 bg-white hover:bg-sky-100/80 text-sky-800 border border-sky-300 font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-xs"
+                  title="Buka Folder Google Drive di Tab Baru"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-sky-600" />
+                  <span>Buka Folder</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowInlineDriveTree(!showInlineDriveTree)}
+                  className="flex-1 md:flex-initial px-3 py-2 bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300 font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-xs"
+                  title="Tampilkan / Sembunyikan Pohon Folder Google Drive"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-sky-700" />
+                  <span>{showInlineDriveTree ? "Sembunyikan Pohon Folder" : "Struktur Folder Drive"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Embedded Directory Tree View on Main Preview Page */}
+            {showInlineDriveTree && (
+              <div className="bg-white border border-sky-200 rounded-2xl p-3.5 space-y-2 animate-in fade-in">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                    <Folder className="w-4 h-4 text-sky-600 fill-sky-100" />
+                    <span>Struktur Direktori Google Drive (Pilih Folder Target):</span>
+                  </span>
+                  <span className="text-[11px] text-slate-500 italic">
+                    Klik <strong className="text-sky-700">[+]</strong> untuk ekspand, klik nama folder untuk memilih langsung
+                  </span>
+                </div>
+
+                <DriveTreeView
+                  rootFolderId={driveFolderStack[0]?.id || "root"}
+                  rootFolderName={driveFolderStack[0]?.name || "Folder Target Drive"}
+                  selectedFolderId={currentFolder?.id || driveFolderStack[0]?.id || "root"}
+                  selectedFolderName={currentFolder?.name || "Folder Target"}
+                  onSelectFolder={(id, name) => {
+                    const rootFolder = driveFolderStack[0] || { id: "root", name: "Drive Utama (Root)" };
+                    if (id === rootFolder.id) {
+                      setDriveFolderStack([rootFolder]);
+                    } else {
+                      setDriveFolderStack([rootFolder, { id, name }]);
+                    }
+                  }}
+                  customToken={manualToken || getDriveAccessToken() || ""}
+                  webhookUrl={appsScriptUrl}
+                  onFolderCreated={() => {
+                    fetchFolders(currentFolder.id, "", false);
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Active Folder Target Name & Primary Direct Upload Button */}
+            <div className="pt-1 flex flex-wrap items-center justify-between gap-3 border-t border-sky-200/60">
+              <div className="text-xs text-slate-700 font-medium">
+                {currentFolder?.name && currentFolder.id !== "root" ? (
+                  <span className="flex items-center gap-1 text-sky-900 font-bold">
+                    <Folder className="w-4 h-4 text-sky-600 fill-sky-100 shrink-0" />
+                    Target: <span className="underline">{currentFolder.name}</span>
+                  </span>
+                ) : (
+                  <span className="text-slate-600 italic">
+                    * Tempelkan link folder Google Drive petugas di atas agar file PDF otomatis tersimpan rapi.
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleExecuteUploadToDrive}
+                disabled={isGeneratingPdf || isUploadingDrive}
+                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-sky-600 to-blue-700 hover:from-sky-700 hover:to-blue-800 disabled:from-sky-400 disabled:to-blue-400 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer active:scale-95"
+              >
+                {isUploadingDrive ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-sky-200" />
+                    <span>Sedang Mengunggah ({uploadProgress}%)...</span>
+                  </>
+                ) : (
+                  <>
+                    <CloudUpload className="w-4.5 h-4.5 text-sky-100" />
+                    <span>UNGGAH LAPORAN PDF KE GOOGLE DRIVE</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Upload Progress Status Bar if active */}
+            {isUploadingDrive && (
+              <div className="bg-white border border-sky-200 rounded-xl p-3 space-y-2 animate-in fade-in">
+                <div className="flex items-center justify-between text-xs font-bold text-sky-950">
+                  <span>{uploadStatusMessage || "Memproses file..."}</span>
+                  <span>{uploadProgress}%</span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="bg-sky-600 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
+                </div>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUploadingDrive(false);
+                      setIsGeneratingPdf(false);
+                    }}
+                    className="text-[11px] font-bold text-slate-600 hover:text-slate-900 underline cursor-pointer"
+                  >
+                    Batal Proses
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1632,6 +1865,220 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
         )}
       </div>
 
+      {/* Mode Switcher Tabs (HTML Paper vs Google PDF Viewer) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-200/90 p-1.5 rounded-2xl border border-slate-300 shadow-xs print:hidden">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setActivePreviewTab("html")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activePreviewTab === "html"
+                ? "bg-white text-slate-900 shadow-sm border border-slate-200 font-extrabold"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <FileText className="w-4 h-4 text-emerald-600" />
+            <span>Tampilan Kertas (HTML / Print)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (pdfPageDataUrls.length === 0) {
+                handleOpenPdfViewer();
+              } else {
+                setActivePreviewTab("pdf");
+              }
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activePreviewTab === "pdf"
+                ? "bg-indigo-600 text-white shadow-md font-extrabold"
+                : "text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200"
+            }`}
+          >
+            <Eye className="w-4 h-4 text-indigo-300" />
+            <span>Preview PDF Viewer Engine</span>
+            {pdfPageDataUrls.length > 0 && (
+              <span className="px-1.5 py-0.5 text-[10px] bg-indigo-800 text-indigo-100 rounded-full font-mono">
+                {pdfPageDataUrls.length} hal
+              </span>
+            )}
+          </button>
+        </div>
+
+        {activePreviewTab === "pdf" && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPdfViewerModal(true)}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="Buka dalam Modal Fullscreen"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-sky-400" />
+              <span>Buka Modal Fullscreen</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* INLINE GOOGLE PDF VIEWER CONTAINER */}
+      {activePreviewTab === "pdf" && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in duration-200 print:hidden my-2">
+          {/* Top Toolbar (Google PDF Viewer Style) */}
+          <div className="bg-slate-950 border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-slate-200">
+            {/* Left Title & Badge */}
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-600/20 border border-indigo-500/30 rounded-xl text-indigo-400">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-xs md:text-sm text-slate-100">
+                    PDF Viewer Engine
+                  </h3>
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-[10px] font-mono rounded-md border border-emerald-500/30 font-semibold">
+                    Live Rendering
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 hidden sm:block">
+                  Pratinjau tampilan PDF persis hasil ekspor sebelum diunggah / dicetak
+                </p>
+              </div>
+            </div>
+
+            {/* Middle Zoom & Navigation Controls */}
+            <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setPdfViewerZoom((prev) => Math.max(50, prev - 15))}
+                className="p-1 hover:bg-slate-800 rounded text-slate-300 transition-colors"
+                title="Zoom Out"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+
+              <select
+                value={pdfViewerZoom}
+                onChange={(e) => setPdfViewerZoom(Number(e.target.value))}
+                className="bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded px-2 py-1 focus:outline-none"
+              >
+                <option value={50}>50%</option>
+                <option value={75}>75%</option>
+                <option value={100}>100% (Fit Width)</option>
+                <option value={125}>125%</option>
+                <option value={150}>150%</option>
+                <option value={200}>200%</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setPdfViewerZoom((prev) => Math.min(200, prev + 15))}
+                className="p-1 hover:bg-slate-800 rounded text-slate-300 transition-colors"
+                title="Zoom In"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+
+              <div className="h-4 w-px bg-slate-700 mx-1" />
+
+              <button
+                type="button"
+                onClick={handleRefreshPdfViewer}
+                disabled={isPdfViewerLoading}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded flex items-center gap-1 transition-colors cursor-pointer"
+                title="Perbarui Preview PDF"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isPdfViewerLoading ? "animate-spin text-sky-400" : ""}`} />
+                <span className="hidden sm:inline">Refresh</span>
+              </button>
+            </div>
+
+            {/* Right Actions */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={isGeneratingPdf}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download PDF</span>
+              </button>
+
+              {!isUploadDriveDisabled && (
+                <button
+                  type="button"
+                  onClick={handleExecuteUploadToDrive}
+                  disabled={isUploadingDrive || isGeneratingPdf}
+                  className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:bg-sky-400 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                >
+                  {isUploadingDrive ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-sky-200" />
+                  ) : (
+                    <CloudUpload className="w-4 h-4" />
+                  )}
+                  <span>{isUploadingDrive ? "Uploading..." : "Upload Ke Drive"}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Viewer Body Canvas */}
+          <div className="bg-slate-950 relative overflow-y-auto overflow-x-auto p-4 md:p-8 flex flex-col items-center gap-6 scrollbar-thin min-h-[450px]">
+            {isPdfViewerLoading ? (
+              <div className="flex flex-col items-center justify-center my-auto p-12 text-center text-slate-300 space-y-3">
+                <div className="w-14 h-14 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-center shadow-inner relative">
+                  <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="font-bold text-sm text-slate-100">Menyiapkan PDF Viewer...</h4>
+                  <p className="text-xs text-slate-400">
+                    Mengonversi format teks baris demi baris, margins, dan foto dokumentasi
+                  </p>
+                </div>
+              </div>
+            ) : pdfPageDataUrls.length > 0 ? (
+              <div
+                className="flex flex-col items-center gap-6 transition-all duration-200"
+                style={{
+                  transform: `scale(${pdfViewerZoom / 100})`,
+                  transformOrigin: "top center",
+                }}
+              >
+                {pdfPageDataUrls.map((dataUrl, idx) => (
+                  <div
+                    key={idx}
+                    className="relative bg-white shadow-2xl rounded-xs border border-slate-700 overflow-hidden group"
+                  >
+                    <img
+                      src={dataUrl}
+                      alt={`Halaman ${idx + 1}`}
+                      className="block max-w-full h-auto"
+                    />
+                    <div className="absolute top-3 right-3 bg-slate-900/90 text-slate-100 text-[11px] font-semibold px-2.5 py-1 rounded-md shadow-md border border-slate-700/80 backdrop-blur-xs flex items-center gap-1.5 pointer-events-none">
+                      <FileText className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Halaman {idx + 1} dari {pdfPageDataUrls.length}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-slate-400 text-xs flex flex-col items-center justify-center my-12 gap-3">
+                <AlertTriangle className="w-8 h-8 text-amber-500" />
+                <p>Belum ada preview PDF yang dibuat. Klik tombol Refresh untuk memuat.</p>
+                <button
+                  type="button"
+                  onClick={handleRefreshPdfViewer}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs transition-colors cursor-pointer shadow-md"
+                >
+                  Generate PDF Viewer
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Official Document Paper Container */}
       <div
         id="report-paper"
@@ -1639,197 +2086,254 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           zoom: `${effectiveScalePercent}%`,
           transformOrigin: "top center",
         }}
-        className={`w-full bg-white shadow-2xl origin-top ${getPaperDimensionsClass()} ${getMarginClass()} ${getFontScaleClass()} text-slate-900 font-serif print:p-0 print:shadow-none print:max-w-none print:w-full transition-all duration-200`}
+        className={`w-full bg-white shadow-2xl origin-top ${getPaperDimensionsClass()} ${getMarginClass()} ${getFontScaleClass()} text-slate-900 font-serif print:p-0 print:shadow-none print:max-w-none print:w-full transition-all duration-200 ${
+          activePreviewTab === "pdf" ? "hidden print:block" : ""
+        }`}
       >
-        {/* Kop Surat Section Wrapper with dynamic Margin Top & Bottom */}
-        <div style={{ marginTop: `${kopMarginTop}mm`, marginBottom: `${kopMarginBottom}mm` }} className="transition-all duration-150">
-          {effectiveKopMode === "image" && appSettings.kop_surat_url && (
-            <div className="mb-6 text-center">
-              <img
-                src={appSettings.kop_surat_url}
-                alt="Kop Surat Official"
-                className="w-full max-h-36 object-contain mx-auto border-b-4 border-double border-black pb-2"
-              />
-            </div>
-          )}
+        {itemsToRender.map((kegItem, kegIdx) => {
+          const parentRb =
+            (rencanaBulananList || []).find((rb) => rb.id === kegItem.rencana_bulanan_id) ||
+            (kegItem.id === kegiatan?.id ? rencanaBulanan : null);
 
-          {effectiveKopMode === "text" && (
-            <div className="border-b-4 border-double border-black pb-4 mb-6 text-center">
-              <div className="flex items-center justify-center gap-4">
-                <div className="w-14 h-14 rounded-full border-2 border-slate-900 flex items-center justify-center font-bold text-[10px] bg-slate-100 uppercase tracking-widest shrink-0">
-                  KEMENSOS
-                </div>
-                <div>
-                  <h2 className="text-sm md:text-base font-extrabold tracking-wider uppercase text-slate-900">
-                    {appSettings.instansi_header || "KEMENTERIAN SOSIAL REPUBLIK INDONESIA"}
-                  </h2>
-                  <p className="text-xs font-serif italic text-slate-700">
-                    {appSettings.sub_header || "Direktorat Jenderal Pemberdayaan Sosial / Dinas Sosial"}
-                  </p>
-                  <p className="text-[10px] text-slate-600">
-                    {appSettings.alamat_header || "Jl. Salemba Raya No. 28, Jakarta Pusat / Kantor Wilayah Daerah"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          const parentRh =
+            (rencanaHarianList || []).find((rh) => rh.id === kegItem.rencana_harian_id) ||
+            (kegItem.id === kegiatan?.id ? rencanaHarian : null);
 
-        {/* Title Section */}
-        <div className="text-center my-6 space-y-1">
-          <h3 className="font-bold uppercase tracking-wide">
-            LAPORAN TENTANG
-          </h3>
-          <h3 className="font-bold uppercase underline tracking-wide">
-            {rkTitle}
-          </h3>
-        </div>
+          const lapTemplate =
+            (laporanList || []).find((l) => l.nomor_rhk === parentRb?.no_rhk) ||
+            (kegItem.id === kegiatan?.id ? laporanTemplate : null);
 
-        {/* Report Content */}
-        <div className="space-y-6 text-justify">
-          {/* Section I */}
-          <div className="report-block mb-5">
-            <h4 className="font-bold mb-1.5 uppercase text-slate-900">I. PENDAHULUAN</h4>
-            <div className="pl-4 space-y-2.5">
-              <div>
-                <p className="font-bold text-slate-900 mb-0.5">1. Umum</p>
-                <div className="pl-1">{renderFormattedContent(umum)}</div>
-              </div>
-              <div>
-                <p className="font-bold text-slate-900 mb-0.5">2. Maksud dan Tujuan</p>
-                <div className="pl-1">{renderFormattedContent(maksud)}</div>
-              </div>
-              <div>
-                <p className="font-bold text-slate-900 mb-0.5">3. Ruang Lingkup</p>
-                <div className="pl-1">{renderFormattedContent(ruang)}</div>
-              </div>
-              <div>
-                <p className="font-bold text-slate-900 mb-0.5">4. Dasar</p>
-                <div className="pl-1">{renderFormattedContent(dasar)}</div>
-              </div>
-            </div>
-          </div>
+          const rkTitle = parentRb?.rencana_kerja || "PELAKSANAAN TUGAS OPERASIONAL";
+          const formattedDate = formatIndonesianDate(kegItem.tanggal);
+          const hariTanggalStr = `${kegItem.haritglkegiatan}, ${formattedDate}`;
+          const tempatStr = `${kegItem.tempat ? `di ${kegItem.tempat} ` : ""}${
+            kegItem.desa ? `desa ${kegItem.desa}` : ""
+          }`.trim() || "-";
 
-          {/* Section II */}
-          <div className="report-block mb-5">
-            <h4 className="font-bold mb-1.5 uppercase text-slate-900">II. PELAKSANAAN KEGIATAN</h4>
-            <div className="pl-4 space-y-2.5">
-              <div>{renderFormattedContent(kegiatan.isi_kegiatan)}</div>
-              <p className="pt-1 font-semibold text-slate-900">Jam dan Tanggal Kegiatan dilaksanakan pada jadwal berikut:</p>
-              <table className="w-full max-w-md ml-2 font-serif text-inherit border-collapse">
-                <tbody>
-                  <tr>
-                    <td className="w-32 py-1 font-semibold align-top text-slate-900">Hari / Tanggal</td>
-                    <td className="py-1 align-top text-slate-900">: {hariTanggalStr}</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1 font-semibold align-top text-slate-900">Waktu</td>
-                    <td className="py-1 align-top text-slate-900">: {kegiatan.waktu || "-"}</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1 font-semibold align-top text-slate-900">Tempat Kegiatan</td>
-                    <td className="py-1 align-top text-slate-900">: {tempatStr}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+          const itemUmum =
+            lapTemplate?.umum ||
+            "Laporan ini disusun sebagai bentuk pertanggungjawaban pelaksanaan tugas operasional ASN dalam rangka meningkatkan akuntabilitas dan efektivitas pelayanan publik.";
+          const itemMaksud =
+            lapTemplate?.maksud_tujuan ||
+            "Maksud kegiatan ini adalah untuk memastikan seluruh tahapan pendampingan berjalan sesuai standar operasional baku dan mencapai target kinerja yang ditetapkan.";
+          const itemRuang =
+            lapTemplate?.ruang_lingkup ||
+            "Ruang lingkup laporan meliputi persiapan administrasi, koordinasi instansi, serta verifikasi lapangan di wilayah kerja.";
+          const itemDasar =
+            lapTemplate?.dasar ||
+            "1. Peraturan Menteri tentang Standar Pelayanan Operasional.\n2. Surat Perintah Tugas Kepala Dinas/Instansi.";
+          const itemSimpulan =
+            lapTemplate?.simpulan ||
+            "Kegiatan pendampingan telah terlaksana dengan lancar dan memberikan kontribusi positif bagi indikator kinerja organisasi.";
+          const itemPenutup =
+            lapTemplate?.penutup ||
+            "Demikian laporan pelaksanaan kegiatan ini dibuat dengan sebenarnya untuk dipergunakan sebagaimana mestinya.";
 
-          {/* Section III */}
-          <div className="report-block mb-5">
-            <h4 className="font-bold mb-1.5 uppercase text-slate-900">III. HASIL YANG DICAPAI</h4>
-            <div className="pl-4">
-              {renderFormattedContent(kegiatan.hasil)}
-            </div>
-          </div>
+          // Chunk photos for this item
+          const itemPhotos = kegItem.foto_kegiatan1 || [];
+          const itemPhotoChunks: string[][] = [];
+          for (let i = 0; i < itemPhotos.length; i += 2) {
+            itemPhotoChunks.push(itemPhotos.slice(i, i + 2));
+          }
 
-          {/* Section IV */}
-          <div className="report-block mb-5">
-            <h4 className="font-bold mb-1.5 uppercase text-slate-900">IV. SIMPULAN DAN SARAN</h4>
-            <div className="pl-4">
-              {renderFormattedContent(simpulan)}
-            </div>
-          </div>
+          return (
+            <div
+              key={kegItem.id || kegIdx}
+              className={kegIdx > 0 ? "pt-10 border-t-2 border-slate-900 break-before-page page-break-before" : ""}
+              style={kegIdx > 0 ? { breakBefore: "page", pageBreakBefore: "always" } : undefined}
+            >
+              {/* Kop Surat Section Wrapper with dynamic Margin Top & Bottom */}
+              <div style={{ marginTop: `${kopMarginTop}mm`, marginBottom: `${kopMarginBottom}mm` }} className="transition-all duration-150">
+                {effectiveKopMode === "image" && appSettings.kop_surat_url && (
+                  <div className="mb-6 text-center">
+                    <img
+                      src={appSettings.kop_surat_url}
+                      alt="Kop Surat Official"
+                      className="w-full max-h-36 object-contain mx-auto border-b-4 border-double border-black pb-2"
+                    />
+                  </div>
+                )}
 
-          {/* Section V */}
-          <div className="report-block mb-5">
-            <h4 className="font-bold mb-1.5 uppercase text-slate-900">V. PENUTUP</h4>
-            <div className="pl-4">
-              {renderFormattedContent(penutup)}
-            </div>
-          </div>
-        </div>
-
-        {/* Signature Box */}
-        <div
-          className="mt-10 flex justify-end break-inside-avoid page-break-inside-avoid"
-          style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
-        >
-          <div
-            className="w-64 font-serif text-inherit space-y-1 break-inside-avoid page-break-inside-avoid"
-            style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
-          >
-            <p>Dibuat di : {tempatDibuatLaporan}</p>
-            <p>Pada Tanggal : {formattedDate}</p>
-            <p className="font-semibold pt-1">Penata Layanan Operasional</p>
-
-            <div className="h-20 flex items-center py-1">
-              {userTtd ? (
-                <img src={userTtd} alt="TTD" className="h-16 object-contain" />
-              ) : (
-                <div className="h-16" />
-              )}
-            </div>
-
-            <p className="font-bold underline text-inherit">{userNama}</p>
-            <p className="font-serif text-inherit">NIP. {userNip}</p>
-          </div>
-        </div>
-
-        {/* Page Break for Photos Annex - Max 2 photos per page */}
-        {showPhotos && photoChunks.length > 0 && (
-          <div className="mt-12">
-            {photoChunks.map((chunk, pageIndex) => (
-              <div
-                key={pageIndex}
-                className="pt-8 border-t border-slate-300 break-before-page page-break-before break-inside-avoid page-break-inside-avoid"
-                style={{
-                  breakBefore: "page",
-                  pageBreakBefore: "always",
-                  breakInside: "avoid",
-                  pageBreakInside: "avoid",
-                  marginTop: pageIndex > 0 ? "2rem" : undefined,
-                }}
-              >
-                <h3 className="text-center font-bold text-sm uppercase mb-6">
-                  LAMPIRAN DOKUMENTASI KEGIATAN{" "}
-                  {photoChunks.length > 1 ? `(HALAMAN ${pageIndex + 1})` : ""}
-                </h3>
-                <div className="flex flex-col space-y-6 items-center">
-                  {chunk.map((foto, idxWithinChunk) => {
-                    const globalIdx = pageIndex * 2 + idxWithinChunk;
-                    return (
-                      <div
-                        key={globalIdx}
-                        className="text-center space-y-2 w-full max-w-lg break-inside-avoid page-break-inside-avoid"
-                        style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
-                      >
-                        <img
-                          src={foto}
-                          alt={`Dokumentasi ${globalIdx + 1}`}
-                          className="max-w-full max-h-[360px] w-auto h-auto object-contain rounded-md border border-slate-300 shadow-2xs mx-auto bg-slate-50"
-                        />
-                        <p className="text-[11px] text-slate-700 font-serif italic font-medium">
-                          Dokumentasi {globalIdx + 1}: {kegiatan.tempat || "Lokasi Kegiatan"}
+                {effectiveKopMode === "text" && (
+                  <div className="border-b-4 border-double border-black pb-4 mb-6 text-center">
+                    <div className="flex items-center justify-center gap-4">
+                      <div className="w-14 h-14 rounded-full border-2 border-slate-900 flex items-center justify-center font-bold text-[10px] bg-slate-100 uppercase tracking-widest shrink-0">
+                        KEMENSOS
+                      </div>
+                      <div>
+                        <h2 className="text-sm md:text-base font-extrabold tracking-wider uppercase text-slate-900">
+                          {appSettings.instansi_header || "KEMENTERIAN SOSIAL REPUBLIK INDONESIA"}
+                        </h2>
+                        <p className="text-xs font-serif italic text-slate-700">
+                          {appSettings.sub_header || "Direktorat Jenderal Pemberdayaan Sosial / Dinas Sosial"}
+                        </p>
+                        <p className="text-[10px] text-slate-600">
+                          {appSettings.alamat_header || "Jl. Salemba Raya No. 28, Jakarta Pusat / Kantor Wilayah Daerah"}
                         </p>
                       </div>
-                    );
-                  })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Title Section */}
+              <div className="text-center my-6 space-y-1">
+                <h3 className="font-bold uppercase tracking-wide">
+                  LAPORAN TENTANG
+                </h3>
+                <h3 className="font-bold uppercase underline tracking-wide">
+                  {rkTitle}
+                </h3>
+              </div>
+
+              {/* Report Content */}
+              <div className="space-y-6 text-justify">
+                {/* Section I */}
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">I. PENDAHULUAN</h4>
+                  <div className="pl-4 space-y-2.5">
+                    <div>
+                      <p className="font-bold text-slate-900 mb-0.5">1. Umum</p>
+                      <div className="pl-1">{renderFormattedContent(itemUmum)}</div>
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 mb-0.5">2. Maksud dan Tujuan</p>
+                      <div className="pl-1">{renderFormattedContent(itemMaksud)}</div>
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 mb-0.5">3. Ruang Lingkup</p>
+                      <div className="pl-1">{renderFormattedContent(itemRuang)}</div>
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 mb-0.5">4. Dasar</p>
+                      <div className="pl-1">{renderFormattedContent(itemDasar)}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section II */}
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">II. PELAKSANAAN KEGIATAN</h4>
+                  <div className="pl-4 space-y-2.5">
+                    <div>{renderFormattedContent(kegItem.isi_kegiatan)}</div>
+                    <p className="pt-1 font-semibold text-slate-900">Jam dan Tanggal Kegiatan dilaksanakan pada jadwal berikut:</p>
+                    <table className="w-full max-w-md ml-2 font-serif text-inherit border-collapse">
+                      <tbody>
+                        <tr>
+                          <td className="w-32 py-1 font-semibold align-top text-slate-900">Hari / Tanggal</td>
+                          <td className="py-1 align-top text-slate-900">: {hariTanggalStr}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1 font-semibold align-top text-slate-900">Waktu</td>
+                          <td className="py-1 align-top text-slate-900">: {kegItem.waktu || "-"}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1 font-semibold align-top text-slate-900">Tempat Kegiatan</td>
+                          <td className="py-1 align-top text-slate-900">: {tempatStr}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Section III */}
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">III. HASIL YANG DICAPAI</h4>
+                  <div className="pl-4">
+                    {renderFormattedContent(kegItem.hasil)}
+                  </div>
+                </div>
+
+                {/* Section IV */}
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">IV. SIMPULAN DAN SARAN</h4>
+                  <div className="pl-4">
+                    {renderFormattedContent(itemSimpulan)}
+                  </div>
+                </div>
+
+                {/* Section V */}
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">V. PENUTUP</h4>
+                  <div className="pl-4">
+                    {renderFormattedContent(itemPenutup)}
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+
+              {/* Signature Box */}
+              <div
+                className="mt-10 flex justify-end break-inside-avoid page-break-inside-avoid"
+                style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+              >
+                <div
+                  className="w-64 font-serif text-inherit space-y-1 break-inside-avoid page-break-inside-avoid"
+                  style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+                >
+                  <p>Dibuat di : {tempatDibuatLaporan}</p>
+                  <p>Pada Tanggal : {formattedDate}</p>
+                  <p className="font-semibold pt-1">Penata Layanan Operasional</p>
+
+                  <div className="h-20 flex items-center py-1">
+                    {userTtd ? (
+                      <img src={userTtd} alt="TTD" className="h-16 object-contain" />
+                    ) : (
+                      <div className="h-16" />
+                    )}
+                  </div>
+
+                  <p className="font-bold underline text-inherit">{userNama}</p>
+                  <p className="font-serif text-inherit">NIP. {userNip}</p>
+                </div>
+              </div>
+
+              {/* Page Break for Photos Annex - Max 2 photos per page */}
+              {showPhotos && itemPhotoChunks.length > 0 && (
+                <div className="mt-12">
+                  {itemPhotoChunks.map((chunk, pageIndex) => (
+                    <div
+                      key={pageIndex}
+                      className="pt-8 border-t border-slate-300 break-before-page page-break-before break-inside-avoid page-break-inside-avoid"
+                      style={{
+                        breakBefore: "page",
+                        pageBreakBefore: "always",
+                        breakInside: "avoid",
+                        pageBreakInside: "avoid",
+                        marginTop: pageIndex > 0 ? "2rem" : undefined,
+                      }}
+                    >
+                      <h3 className="text-center font-bold text-sm uppercase mb-6">
+                        LAMPIRAN DOKUMENTASI KEGIATAN{" "}
+                        {itemPhotoChunks.length > 1 ? `(HALAMAN ${pageIndex + 1})` : ""}
+                      </h3>
+                      <div className="flex flex-col space-y-6 items-center">
+                        {chunk.map((foto, idxWithinChunk) => {
+                          const globalIdx = pageIndex * 2 + idxWithinChunk;
+                          return (
+                            <div
+                              key={globalIdx}
+                              className="text-center space-y-2 w-full max-w-lg break-inside-avoid page-break-inside-avoid"
+                              style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+                            >
+                              <img
+                                src={foto}
+                                alt={`Dokumentasi ${globalIdx + 1}`}
+                                className="max-w-full max-h-[360px] w-auto h-auto object-contain rounded-md border border-slate-300 shadow-2xs mx-auto bg-slate-50"
+                              />
+                              <p className="text-[11px] text-slate-700 font-serif italic font-medium">
+                                Dokumentasi {globalIdx + 1}: {kegItem.tempat || "Lokasi Kegiatan"}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Google Drive Folder Selector Modal */}
@@ -2448,7 +2952,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                       {getExportFileName()}
                     </h3>
                     <span className="text-[10px] bg-slate-800 text-slate-300 font-medium px-2 py-0.5 rounded-full border border-slate-700 flex items-center gap-1 shrink-0">
-                      <Eye className="w-3 h-3 text-sky-400" /> Google PDF Viewer
+                      <Eye className="w-3 h-3 text-sky-400" /> PDF Viewer
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 truncate">
@@ -2530,12 +3034,17 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                 {!isUploadDriveDisabled && (
                   <button
                     type="button"
-                    onClick={handleOpenDriveModal}
-                    className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-sm hidden md:flex cursor-pointer"
-                    title="Upload Ke Drive"
+                    onClick={handleExecuteUploadToDrive}
+                    disabled={isUploadingDrive || isGeneratingPdf}
+                    className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:bg-sky-400 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                    title="Upload Langsung Ke Google Drive"
                   >
-                    <CloudUpload className="w-4 h-4" />
-                    <span>Ke Drive</span>
+                    {isUploadingDrive ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-sky-200" />
+                    ) : (
+                      <CloudUpload className="w-4 h-4" />
+                    )}
+                    <span>{isUploadingDrive ? "Uploading..." : "Upload Ke Drive"}</span>
                   </button>
                 )}
 
@@ -2549,6 +3058,43 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Target Google Drive Sub-Bar in PDF Modal */}
+            {!isUploadDriveDisabled && (
+              <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <CloudUpload className="w-4 h-4 text-sky-400 shrink-0" />
+                  <span className="font-semibold text-slate-200 shrink-0">Folder Drive Target:</span>
+                  <input
+                    type="text"
+                    value={sharedDriveLink}
+                    onChange={(e) => setSharedDriveLink(e.target.value)}
+                    placeholder="https://drive.google.com/drive/folders/..."
+                    className="flex-1 max-w-md bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 font-mono text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleApplySharedLink()}
+                    disabled={isApplyingSharedLink}
+                    className="px-2.5 py-1 bg-sky-700 hover:bg-sky-600 text-white font-bold rounded-lg text-[11px] flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    {isApplyingSharedLink ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                    <span>Set Folder</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleOpenDriveModal}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Pohon Folder Drive</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Viewer Body Canvas */}
             <div className="flex-1 bg-slate-950 relative overflow-y-auto overflow-x-auto p-4 md:p-8 flex flex-col items-center gap-6 scrollbar-thin">
@@ -2608,7 +3154,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
             <div className="bg-slate-950 border-t border-slate-800 px-4 py-2 flex items-center justify-between text-[11px] text-slate-400">
               <span className="flex items-center gap-1.5">
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
-                Google PDF Viewer Engine • {pdfPageDataUrls.length} Halaman ({paperSize.toUpperCase()})
+                PDF Viewer Engine • {pdfPageDataUrls.length} Halaman ({paperSize.toUpperCase()})
               </span>
               <button
                 type="button"
