@@ -17,7 +17,14 @@ interface AppsScriptGuideModalProps {
   addToast: (type: "success" | "error" | "info" | "warning", title: string) => void;
 }
 
-export const APPS_SCRIPT_CODE = `function doPost(e) {
+export const APPS_SCRIPT_CODE = `// Jalankan fungsi ini 1x di Editor Google Apps Script jika muncul 'Access denied: DriveApp'
+function testDriveAccess() {
+  var rootFolder = DriveApp.getRootFolder();
+  Logger.log("Izin Google Drive Aktif! Root Folder ID: " + rootFolder.getId());
+  return "Otorisasi Google Drive Berhasil!";
+}
+
+function doPost(e) {
   try {
     var data = {};
     if (e && e.postData && e.postData.contents) {
@@ -134,7 +141,7 @@ export const APPS_SCRIPT_CODE = `function doPost(e) {
 
 function doGet(e) {
   return ContentService.createTextOutput("Google Apps Script Webhook SKP Online Active").setMimeType(ContentService.MimeType.TEXT);
-}`;
+};`;
 
 export const AppsScriptGuideModal: React.FC<AppsScriptGuideModalProps> = ({
   isOpen,
