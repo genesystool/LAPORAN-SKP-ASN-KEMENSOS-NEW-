@@ -426,7 +426,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       html2canvas: {
         scale: 2,
         useCORS: true,
-        allowTaint: true,
+        allowTaint: false,
         logging: false,
         backgroundColor: "#ffffff",
         onclone: (clonedDoc: Document) => {
@@ -586,7 +586,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
         html2canvas: {
           scale: 2,
           useCORS: true,
-          allowTaint: true,
+          allowTaint: false,
           logging: false,
           backgroundColor: "#ffffff",
           onclone: (clonedDoc: Document) => {
