@@ -1466,7 +1466,7 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
                   <div className="flex items-center gap-2">
                     <h2 className="text-xl font-extrabold text-white tracking-tight">Laporan SKP Online</h2>
                     <span className="px-2.5 py-0.5 bg-amber-400 text-slate-950 font-black rounded-full text-[10px] tracking-wide uppercase">
-                      v2.6.0
+                      v2.6.1
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 mt-0.5">
@@ -1505,7 +1505,7 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
                 </li>
                 <li className="flex justify-between items-center py-1 border-b border-slate-50">
                   <span className="text-slate-500">Versi Rilis:</span>
-                  <span className="font-mono font-bold text-indigo-600">v2.6.0 (FireLink)</span>
+                  <span className="font-mono font-bold text-indigo-600">v2.6.1 (FireLink)</span>
                 </li>
                 <li className="flex justify-between items-center py-1 border-b border-slate-50">
                   <span className="text-slate-500">Frontend Stack:</span>
