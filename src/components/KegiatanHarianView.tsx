@@ -1,4 +1,6 @@
 import React, { useState, useRef } from "react";
+import html2pdf from "html2pdf.js";
+import JSZip from "jszip";
 import { RichTextEditor } from "./RichTextEditor";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
 import {
@@ -6,6 +8,7 @@ import {
   Petugas,
   RencanaBulanan,
   RencanaHarian,
+  LaporanTemplate,
   ToastMessage,
   AppSettings,
   ModulP2K2,
@@ -16,6 +19,27 @@ import {
   getIndonesianDayName,
   formatIndonesianDate,
 } from "../lib/imageUtils";
+
+// Helper function to render clean formatted HTML or plain text without raw tags or squished lines
+const renderFormattedContent = (content: string | undefined | null) => {
+  if (!content || content.trim() === "" || content === "-") {
+    return <span className="text-slate-500 italic font-serif">-</span>;
+  }
+  const trimmed = content.trim();
+  if (/<[a-z][\s\S]*>/i.test(trimmed)) {
+    return (
+      <div
+        className="prose max-w-none text-slate-900 leading-relaxed font-serif text-inherit [&_*]:font-serif [&_*]:text-inherit [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ol]:list-decimal [&>ol]:pl-5 [&>ul]:list-disc [&>ul]:pl-5 [&_p]:mb-1.5 [&_p:last-child]:mb-0 [&_p]:leading-relaxed [&_li]:leading-relaxed [&_p]:text-inherit [&_li]:text-inherit [&_span]:text-inherit [&_div]:text-inherit [&_strong]:font-bold"
+        dangerouslySetInnerHTML={{ __html: trimmed }}
+      />
+    );
+  }
+  return (
+    <div className="whitespace-pre-line leading-relaxed font-serif text-slate-900 text-inherit">
+      {trimmed}
+    </div>
+  );
+};
 import {
   Plus,
   Search,
@@ -41,6 +65,8 @@ import {
   Users,
   BookOpen,
   Check,
+  Lock,
+  FileText,
 } from "lucide-react";
 
 interface KegiatanHarianViewProps {
@@ -48,6 +74,7 @@ interface KegiatanHarianViewProps {
   kegiatanList: KegiatanHarian[];
   rencanaBulananList: RencanaBulanan[];
   rencanaHarianList: RencanaHarian[];
+  laporanList?: LaporanTemplate[];
   petugasList?: Petugas[];
   modulP2k2List?: ModulP2K2[];
   isLicensed: boolean;
@@ -56,6 +83,7 @@ interface KegiatanHarianViewProps {
   onSaveKegiatan: (data: Omit<KegiatanHarian, "id">, id?: string) => Promise<boolean>;
   onDeleteKegiatan: (id: string) => Promise<boolean>;
   onPrintReport: (kegiatan: KegiatanHarian) => void;
+  onPrintReportList?: (kegiatanList: KegiatanHarian[]) => void;
   addToast: (type: ToastMessage["type"], title: string) => void;
   onNavigateToLisensi: () => void;
 }
@@ -65,6 +93,7 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
   kegiatanList,
   rencanaBulananList,
   rencanaHarianList,
+  laporanList = [],
   petugasList = [],
   modulP2k2List = [],
   isLicensed,
@@ -73,6 +102,7 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
   onSaveKegiatan,
   onDeleteKegiatan,
   onPrintReport,
+  onPrintReportList,
   addToast,
   onNavigateToLisensi,
 }) => {
@@ -564,6 +594,156 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
     addToast("success", "File CSV berhasil diunduh");
   };
 
+  // Export All / Selected Kegiatan to PDF directly using official report format bundled into ZIP
+  const [isGeneratingPdfAll, setIsGeneratingPdfAll] = useState(false);
+  const [pdfExportProgressText, setPdfExportProgressText] = useState("");
+
+  const handleExportAllPdf = async () => {
+    const itemsToExport =
+      selectedIds.length > 0
+        ? filteredKegiatan.filter((item) => selectedIds.includes(item.id))
+        : filteredKegiatan;
+
+    if (itemsToExport.length === 0) {
+      addToast("warning", "Tidak ada data kegiatan untuk diekspor ke PDF!");
+      return;
+    }
+
+    setIsGeneratingPdfAll(true);
+    setPdfExportProgressText(`Menyiapkan ${itemsToExport.length} file...`);
+
+    // Brief delay to ensure DOM elements are ready for rendering
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    try {
+      const zip = new JSZip();
+      const usedFileNames = new Set<string>();
+      const rhkCounters = new Map<string, number>();
+
+      for (let i = 0; i < itemsToExport.length; i++) {
+        const kegItem = itemsToExport[i];
+        setPdfExportProgressText(`Proses ${i + 1}/${itemsToExport.length}...`);
+
+        const element = document.getElementById(`export-single-paper-${kegItem.id}`);
+        if (!element) continue;
+
+        const parentRb = rencanaBulananList.find((rb) => rb.id === kegItem.rencana_bulanan_id);
+        const parentRh = rencanaHarianList.find((rh) => rh.id === kegItem.rencana_harian_id);
+
+        const noRb = parentRb ? String(parentRb.no_rhk ?? "").trim() : "";
+        const noRh = parentRh ? String(parentRh.norhkharian ?? "").trim() : "";
+
+        // Track sequence counter per distinct RHK group
+        const rhkKey = `${kegItem.rencana_bulanan_id || noRb}__${kegItem.rencana_harian_id || noRh}`;
+        const noUrut = (rhkCounters.get(rhkKey) || 0) + 1;
+        rhkCounters.set(rhkKey, noUrut);
+
+        // Determine RHK Label (e.g. RHK. 8.1.1 - showing RHK Bulanan 8, RHK Harian 1, no urut 1)
+
+        let rhkLabel = "RHK";
+        if (noRb && noRh) {
+          rhkLabel = `RHK. ${noRb}.${noRh}.${noUrut}`;
+        } else if (noRb) {
+          rhkLabel = `RHK. ${noRb}.${noUrut}`;
+        } else if (noRh) {
+          rhkLabel = `RHK.${noRh}.${noUrut}`;
+        } else {
+          rhkLabel = `RHK.${noUrut}`;
+        }
+
+        // Determine Date (DD-MM-YYYY)
+        let tglFormatted = "01-01-2026";
+        if (kegItem.tanggal) {
+          const parts = kegItem.tanggal.split("-");
+          if (parts.length === 3 && parts[0].length === 4) {
+            tglFormatted = `${parts[2]}-${parts[1]}-${parts[0]}`;
+          } else {
+            tglFormatted = kegItem.tanggal.replace(/[/\\?%*:|"<>]/g, "-");
+          }
+        }
+
+        const baseFileName = `${rhkLabel} - ${tglFormatted}.pdf`.replace(/[/\\?%*:|"<>]/g, "_");
+        let fileName = baseFileName;
+        let counter = 1;
+        while (usedFileNames.has(fileName)) {
+          const nameWithoutExt = baseFileName.replace(/\.pdf$/i, "");
+          fileName = `${nameWithoutExt} (${counter}).pdf`;
+          counter++;
+        }
+        usedFileNames.add(fileName);
+
+        const opt = {
+          margin: [10, 10, 10, 10] as [number, number, number, number],
+          filename: fileName,
+          image: { type: "jpeg" as const, quality: 0.98 },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            backgroundColor: "#ffffff",
+            windowWidth: 718, // 190mm in px at 96dpi is ~718px
+            onclone: (clonedDoc: Document) => {
+              clonedDoc.documentElement.classList.remove("dark");
+              clonedDoc.body.classList.remove("dark");
+              clonedDoc.documentElement.style.backgroundColor = "#ffffff";
+              clonedDoc.body.style.backgroundColor = "#ffffff";
+
+              const styleTags = Array.from(clonedDoc.querySelectorAll("style"));
+              styleTags.forEach((styleTag) => {
+                if (styleTag.textContent && styleTag.textContent.includes("oklch")) {
+                  let css = styleTag.textContent;
+                  css = css.replace(/(--tw-[a-z0-9-]*:\s*)[^;]*oklch\([^)]+\)/gi, "$1rgba(0,0,0,0)");
+                  css = css.replace(/oklch\(([^)]+)\)/gi, "rgba(15, 23, 42, 0.8)");
+                  styleTag.textContent = css;
+                }
+              });
+
+              // Only avoid breaking inside signature or specific photo items
+              const avoidEls = clonedDoc.querySelectorAll(".signature-box, .photo-item, .prevent-break");
+              avoidEls.forEach((el) => {
+                const htmlEl = el as HTMLElement;
+                htmlEl.style.breakInside = "avoid";
+                htmlEl.style.pageBreakInside = "avoid";
+              });
+            },
+          },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" as const },
+          pagebreak: {
+            mode: ["css", "legacy"],
+            before: ".break-before-page",
+            avoid: [".signature-box", ".photo-item", ".prevent-break"],
+          },
+        };
+
+        const pdfBlob: Blob = await html2pdf().set(opt).from(element).output("blob");
+        zip.file(fileName, pdfBlob);
+      }
+
+      setPdfExportProgressText("Mengemas file ZIP...");
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const zipFileName = `Rekap_Laporan_Kegiatan_${currentUser.nip || "ASN"}_${new Date().toISOString().split("T")[0]}.zip`;
+
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(zipBlob);
+      link.download = zipFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+
+      addToast(
+        "success",
+        `Berhasil mengunduh ZIP (${itemsToExport.length} file PDF laporan resmi)!`
+      );
+    } catch (err) {
+      console.error("Export PDF ZIP Error:", err);
+      addToast("error", "Gagal mengunduh file ZIP laporan kegiatan.");
+    } finally {
+      setIsGeneratingPdfAll(false);
+      setPdfExportProgressText("");
+    }
+  };
+
   // Available Rencana Harian dropdown filtered by selected Rencana Bulanan
   const filteredRencanaHarian = rencanaHarianList.filter(
     (rh) => rh.rencana_kerja_bulanan_id === formRbId
@@ -606,6 +786,26 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
               className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
             >
               <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+
+            {/* Export All to PDF Button */}
+            <button
+              onClick={handleExportAllPdf}
+              disabled={isGeneratingPdfAll}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-semibold rounded-md text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              title="Ekspor seluruh kegiatan harian (atau hasil filter) ke format PDF Laporan Resmi dalam 1 file ZIP"
+            >
+              {isGeneratingPdfAll ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>{pdfExportProgressText || "Mengekspor PDF..."}</span>
+                </>
+              ) : (
+                <>
+                  <Printer className="w-3.5 h-3.5 text-indigo-200" />
+                  <span>Export All ke ZIP (PDF)</span>
+                </>
+              )}
             </button>
 
             {limitReached ? (
@@ -1157,11 +1357,11 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
             </div>
           </div>
 
-          {/* Admin Batch Delete Action Bar */}
-          {isAdmin && selectedIds.length > 0 && (
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-150">
-              <div className="flex items-center gap-2 text-rose-800 text-xs font-bold">
-                <CheckSquare className="w-4 h-4 text-rose-600" />
+          {/* Batch Selection Action Bar */}
+          {selectedIds.length > 0 && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-150">
+              <div className="flex items-center gap-2 text-indigo-900 text-xs font-bold">
+                <CheckSquare className="w-4 h-4 text-indigo-600" />
                 <span>Terpilih {selectedIds.length} kegiatan harian</span>
               </div>
               <div className="flex items-center gap-2">
@@ -1174,12 +1374,32 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowBatchDeleteModal(true)}
-                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors"
+                  onClick={handleExportAllPdf}
+                  disabled={isGeneratingPdfAll}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Hapus {selectedIds.length} Terpilih (Manual)</span>
+                  {isGeneratingPdfAll ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>{pdfExportProgressText || "Proses PDF..."}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Printer className="w-3.5 h-3.5 text-indigo-200" />
+                      <span>Export PDF ({selectedIds.length} Terpilih)</span>
+                    </>
+                  )}
                 </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBatchDeleteModal(true)}
+                    className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus {selectedIds.length} Terpilih</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1196,26 +1416,24 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
               <table className="w-full text-xs text-left text-slate-700">
                 <thead className="bg-slate-50 text-slate-700 uppercase font-bold border-b border-slate-200">
                   <tr>
-                    {isAdmin && (
-                      <th className="py-3 px-3 w-10 text-center">
-                        <input
-                          type="checkbox"
-                          checked={
-                            filteredKegiatan.length > 0 &&
-                            filteredKegiatan.every((k) => selectedIds.includes(k.id))
+                    <th className="py-3 px-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={
+                          filteredKegiatan.length > 0 &&
+                          filteredKegiatan.every((k) => selectedIds.includes(k.id))
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedIds(filteredKegiatan.map((k) => k.id));
+                          } else {
+                            setSelectedIds([]);
                           }
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedIds(filteredKegiatan.map((k) => k.id));
-                            } else {
-                              setSelectedIds([]);
-                            }
-                          }}
-                          className="w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500 cursor-pointer"
-                          title="Pilih Semua"
-                        />
-                      </th>
-                    )}
+                        }}
+                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                        title="Pilih Semua"
+                      />
+                    </th>
                     <th className="py-3 px-3 w-10 text-center">No</th>
                     <th className="py-3 px-3 w-32">Aksi</th>
                     <th className="py-3 px-3 w-32">Hari / Tanggal</th>
@@ -1227,7 +1445,7 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filteredKegiatan.length === 0 ? (
                     <tr>
-                      <td colSpan={isAdmin ? 7 : 6} className="py-10 text-center text-slate-400">
+                      <td colSpan={7} className="py-10 text-center text-slate-400">
                         Belum ada data kegiatan harian.
                       </td>
                     </tr>
@@ -1242,22 +1460,22 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/80">
-                          {isAdmin && (
-                            <td className="py-3 px-3 text-center">
-                              <input
-                                type="checkbox"
-                                checked={selectedIds.includes(item.id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedIds((prev) => [...prev, item.id]);
-                                  } else {
-                                    setSelectedIds((prev) => prev.filter((id) => id !== item.id));
-                                  }
-                                }}
-                                className="w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500 cursor-pointer"
-                              />
-                            </td>
-                          )}
+                          <td className="py-3 px-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(item.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedIds((prev) => [...prev, item.id]);
+                                } else {
+                                  setSelectedIds((prev) =>
+                                    prev.filter((id) => id !== item.id)
+                                  );
+                                }
+                              }}
+                              className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                            />
+                          </td>
                           <td className="py-3 px-3 text-center font-bold text-slate-500">
                             {idx + 1}
                           </td>
@@ -1630,6 +1848,267 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Hidden Printable Container for Bulk PDF Export in Official Report Format */}
+      <div className="fixed -left-[9999px] -top-[9999px] pointer-events-none opacity-0 overflow-hidden">
+        <div
+          id="export-all-pdf-paper"
+          className="w-[210mm] bg-white text-slate-900 p-[12mm] font-serif text-[11pt] leading-relaxed"
+          style={{ backgroundColor: "#ffffff", color: "#0f172a" }}
+        >
+          {(selectedIds.length > 0
+            ? filteredKegiatan.filter((item) => selectedIds.includes(item.id))
+            : filteredKegiatan
+          ).map((kegItem, kegIdx) => {
+            const parentRb = rencanaBulananList.find((rb) => rb.id === kegItem.rencana_bulanan_id);
+            const parentRh = rencanaHarianList.find((rh) => rh.id === kegItem.rencana_harian_id);
+            const officer = (petugasList || []).find((p) => p.id === kegItem.petugas_id) || currentUser;
+            const lapTemplate = (laporanList || []).find(
+              (l) => l.nomor_rhk === parentRb?.no_rhk && l.petugas_id === officer.id
+            );
+
+            const rkTitle = parentRb?.rencana_kerja || "PELAKSANAAN TUGAS OPERASIONAL";
+            const formattedDate = kegItem.tanggal ? formatIndonesianDate(kegItem.tanggal) : "-";
+            const hariTanggalStr = `${kegItem.haritglkegiatan || ""}, ${formattedDate}`.trim();
+            const tempatStr = `${kegItem.tempat ? `di ${kegItem.tempat} ` : ""}${
+              kegItem.desa ? `desa ${kegItem.desa}` : ""
+            }`.trim() || "-";
+
+            const itemUmum =
+              lapTemplate?.umum ||
+              "Laporan ini disusun sebagai bentuk pertanggungjawaban pelaksanaan tugas operasional ASN dalam rangka meningkatkan akuntabilitas dan efektivitas pelayanan publik.";
+            const itemMaksud =
+              lapTemplate?.maksud_tujuan ||
+              "Maksud kegiatan ini adalah untuk memastikan seluruh tahapan pendampingan berjalan sesuai standar operasional baku dan mencapai target kinerja yang ditetapkan.";
+            const itemRuang =
+              lapTemplate?.ruang_lingkup ||
+              "Ruang lingkup laporan meliputi persiapan administrasi, koordinasi instansi, serta verifikasi lapangan di wilayah kerja.";
+            const itemDasar =
+              lapTemplate?.dasar ||
+              "1. Peraturan Menteri tentang Standar Pelayanan Operasional.\n2. Surat Perintah Tugas Kepala Dinas/Instansi.";
+            const itemSimpulan =
+              lapTemplate?.simpulan ||
+              "Kegiatan pendampingan telah terlaksana dengan lancar dan memberikan kontribusi positif bagi indikator kinerja organisasi.";
+            const itemPenutup =
+              lapTemplate?.penutup ||
+              "Demikian laporan pelaksanaan kegiatan ini dibuat dengan sebenarnya untuk dipergunakan sebagaimana mestinya.";
+
+            const userNama = officer.nama || currentUser.nama || "-";
+            const userNip = officer.nip || currentUser.nip || "-";
+            const userTtd = officer.scan_ttd || currentUser.scan_ttd || "";
+            const tempatDibuat = officer.tempat_dibuat || "Kualasimpang";
+
+            const itemPhotos = kegItem.foto_kegiatan1 || [];
+            const itemPhotoChunks: string[][] = [];
+            for (let i = 0; i < itemPhotos.length; i += 2) {
+              itemPhotoChunks.push(itemPhotos.slice(i, i + 2));
+            }
+
+            const effectiveKopMode = appSettings?.kop_mode || "auto";
+            const kopMarginTop = appSettings?.kop_margin_top ?? 0;
+            const kopMarginBottom = appSettings?.kop_margin_bottom ?? 0;
+
+            return (
+              <div
+                key={kegItem.id || kegIdx}
+                id={`export-single-paper-${kegItem.id}`}
+                className="w-[190mm] max-w-[190mm] bg-white text-slate-900 px-3 py-2 font-serif text-[10.5pt] leading-relaxed mb-10 box-border overflow-hidden"
+                style={{ backgroundColor: "#ffffff", color: "#0f172a" }}
+              >
+                {/* Kop Surat Header */}
+                <div style={{ marginTop: `${kopMarginTop}mm`, marginBottom: `${kopMarginBottom}mm` }}>
+                  {effectiveKopMode === "image" && appSettings?.kop_surat_url ? (
+                    <div className="mb-6 text-center">
+                      <img
+                        src={appSettings.kop_surat_url}
+                        alt="Kop Surat Official"
+                        className="w-full max-h-36 object-contain mx-auto border-b-4 border-double border-black pb-2"
+                      />
+                    </div>
+                  ) : (
+                    <div className="border-b-4 border-double border-black pb-4 mb-6 text-center">
+                      <div className="flex items-center justify-center gap-4">
+                        <div className="w-14 h-14 rounded-full border-2 border-slate-900 flex items-center justify-center font-bold text-[10px] bg-slate-100 uppercase tracking-widest shrink-0">
+                          KEMENSOS
+                        </div>
+                        <div>
+                          <h2 className="text-sm md:text-base font-extrabold tracking-wider uppercase text-slate-900">
+                            {appSettings?.instansi_header || "KEMENTERIAN SOSIAL REPUBLIK INDONESIA"}
+                          </h2>
+                          <p className="text-xs font-serif italic text-slate-700">
+                            {appSettings?.sub_header || "Direktorat Jenderal Pemberdayaan Sosial / Dinas Sosial"}
+                          </p>
+                          <p className="text-[10px] text-slate-600">
+                            {appSettings?.alamat_header || "Jl. Salemba Raya No. 28, Jakarta Pusat / Kantor Wilayah Daerah"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Title Section */}
+                <div className="text-center my-6 space-y-1">
+                  <h3 className="font-bold uppercase tracking-wide text-slate-900">
+                    LAPORAN TENTANG
+                  </h3>
+                  <h3 className="font-bold uppercase underline tracking-wide text-slate-900">
+                    {rkTitle}
+                  </h3>
+                </div>
+
+                {/* Report Body */}
+                <div className="space-y-6 text-justify">
+                  {/* Section I */}
+                  <div className="report-block mb-5">
+                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">I. PENDAHULUAN</h4>
+                    <div className="pl-4 space-y-2.5">
+                      <div>
+                        <p className="font-bold text-slate-900 mb-0.5">1. Umum</p>
+                        <div className="pl-1">{renderFormattedContent(itemUmum)}</div>
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900 mb-0.5">2. Maksud dan Tujuan</p>
+                        <div className="pl-1">{renderFormattedContent(itemMaksud)}</div>
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900 mb-0.5">3. Ruang Lingkup</p>
+                        <div className="pl-1">{renderFormattedContent(itemRuang)}</div>
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900 mb-0.5">4. Dasar</p>
+                        <div className="pl-1">{renderFormattedContent(itemDasar)}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section II */}
+                  <div className="report-block mb-5">
+                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">II. PELAKSANAAN KEGIATAN</h4>
+                    <div className="pl-4 space-y-2.5">
+                      <div>
+                        {renderFormattedContent(kegItem.isi_kegiatan)}
+                      </div>
+                      <p className="pt-1 font-semibold text-slate-900">Jam dan Tanggal Kegiatan dilaksanakan pada jadwal berikut:</p>
+                      <table className="w-full max-w-md ml-2 font-serif text-inherit border-collapse">
+                        <tbody>
+                          <tr>
+                            <td className="w-32 py-1 font-semibold align-top text-slate-900">Hari / Tanggal</td>
+                            <td className="py-1 align-top text-slate-900">: {hariTanggalStr}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-1 font-semibold align-top text-slate-900">Waktu</td>
+                            <td className="py-1 align-top text-slate-900">: {kegItem.waktu || "-"}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-1 font-semibold align-top text-slate-900">Tempat Kegiatan</td>
+                            <td className="py-1 align-top text-slate-900">: {tempatStr}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Section III */}
+                  <div className="report-block mb-5">
+                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">III. HASIL YANG DICAPAI</h4>
+                    <div className="pl-4">
+                      {renderFormattedContent(kegItem.hasil)}
+                    </div>
+                  </div>
+
+                  {/* Section IV */}
+                  <div className="report-block mb-5">
+                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">IV. SIMPULAN DAN SARAN</h4>
+                    <div className="pl-4">
+                      {renderFormattedContent(itemSimpulan)}
+                    </div>
+                  </div>
+
+                  {/* Section V */}
+                  <div className="report-block mb-5">
+                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">V. PENUTUP</h4>
+                    <div className="pl-4">
+                      {renderFormattedContent(itemPenutup)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Signature Box */}
+                <div
+                  className="signature-box mt-10 flex justify-end break-inside-avoid page-break-inside-avoid"
+                  style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+                >
+                  <div
+                    className="w-64 font-serif text-inherit space-y-1 break-inside-avoid page-break-inside-avoid"
+                    style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+                  >
+                    <p>Dibuat di : {tempatDibuat}</p>
+                    <p>Pada Tanggal : {formattedDate}</p>
+                    <p className="font-semibold pt-1">Penata Layanan Operasional</p>
+
+                    <div className="h-20 flex items-center py-1">
+                      {userTtd ? (
+                        <img src={userTtd} alt="TTD" className="h-16 object-contain" />
+                      ) : (
+                        <div className="h-16" />
+                      )}
+                    </div>
+
+                    <p className="font-bold underline text-inherit">{userNama}</p>
+                    <p className="font-serif text-inherit">NIP. {userNip}</p>
+                  </div>
+                </div>
+
+                {/* Photos Annex */}
+                {itemPhotoChunks.length > 0 && (
+                  <div className="mt-12">
+                    {itemPhotoChunks.map((chunk, pageIndex) => (
+                      <div
+                        key={pageIndex}
+                        className="pt-8 border-t border-slate-300 break-before-page page-break-before break-inside-avoid page-break-inside-avoid"
+                        style={{
+                          breakBefore: "page",
+                          pageBreakBefore: "always",
+                          breakInside: "avoid",
+                          pageBreakInside: "avoid",
+                          marginTop: pageIndex > 0 ? "2rem" : undefined,
+                        }}
+                      >
+                        <h3 className="text-center font-bold text-sm uppercase mb-6 text-slate-900">
+                          LAMPIRAN DOKUMENTASI KEGIATAN{" "}
+                          {itemPhotoChunks.length > 1 ? `(HALAMAN ${pageIndex + 1})` : ""}
+                        </h3>
+                        <div className="flex flex-col space-y-6 items-center">
+                          {chunk.map((foto, idxWithinChunk) => {
+                            const globalIdx = pageIndex * 2 + idxWithinChunk;
+                            return (
+                              <div
+                                key={globalIdx}
+                                className="text-center space-y-2 w-full max-w-lg break-inside-avoid page-break-inside-avoid"
+                                style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+                              >
+                                <img
+                                  src={foto}
+                                  alt={`Dokumentasi ${globalIdx + 1}`}
+                                  className="max-w-full max-h-[360px] w-auto h-auto object-contain rounded-md border border-slate-300 shadow-2xs mx-auto bg-slate-50"
+                                />
+                                <p className="text-[11px] text-slate-700 font-serif italic font-medium">
+                                  Dokumentasi {globalIdx + 1}: {kegItem.tempat || "Lokasi Kegiatan"}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };
