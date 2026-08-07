@@ -200,14 +200,29 @@ export default function App() {
   const [modulP2k2List, setModulP2k2List] = useState<ModulP2K2[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings>({
     kop_surat_url: "",
+    favicon_url: "",
     kop_mode: "auto",
     instansi_header: "KEMENTERIAN SOSIAL REPUBLIK INDONESIA",
     sub_header: "Direktorat Jenderal Pemberdayaan Sosial / Dinas Sosial",
     alamat_header: "Jl. Salemba Raya No. 28, Jakarta Pusat / Kantor Wilayah Daerah",
   } as AppSettings);
 
+  // Sync favicon dynamically when appSettings.favicon_url changes
+  useEffect(() => {
+    if (appSettings.favicon_url) {
+      let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "icon";
+        document.head.appendChild(link);
+      }
+      link.href = appSettings.favicon_url;
+    }
+  }, [appSettings.favicon_url]);
+
   // Print Mode State
   const [printingKegiatan, setPrintingKegiatan] = useState<KegiatanHarian | null>(null);
+  const [printingKegiatanList, setPrintingKegiatanList] = useState<KegiatanHarian[] | null>(null);
 
   // Toast System State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -587,24 +602,33 @@ export default function App() {
   }
 
   // If printing, display Official Government Report view
-  if (printingKegiatan) {
-    const parentRb = rencanaBulananList.find((rb) => rb.id === printingKegiatan.rencana_bulanan_id) || null;
-    const parentRh = rencanaHarianList.find((rh) => rh.id === printingKegiatan.rencana_harian_id) || null;
-    const officer = petugasList.find((p) => p.id === printingKegiatan.petugas_id) || currentUser;
+  if (printingKegiatan || (printingKegiatanList && printingKegiatanList.length > 0)) {
+    const activeList = printingKegiatanList || (printingKegiatan ? [printingKegiatan] : []);
+    const mainKeg = activeList[0];
+    const parentRb = rencanaBulananList.find((rb) => rb.id === mainKeg?.rencana_bulanan_id) || null;
+    const parentRh = rencanaHarianList.find((rh) => rh.id === mainKeg?.rencana_harian_id) || null;
+    const officer = petugasList.find((p) => p.id === mainKeg?.petugas_id) || currentUser;
     const parentLap = laporanList.find((l) => l.nomor_rhk === parentRb?.no_rhk && l.petugas_id === officer.id) || null;
 
     return (
       <PrintReportView
-        kegiatan={printingKegiatan}
+        kegiatan={mainKeg}
+        kegiatanList={activeList}
         petugas={officer}
         rencanaBulanan={parentRb}
+        rencanaBulananList={rencanaBulananList}
         rencanaHarian={parentRh}
         rencanaHarianList={rencanaHarianList}
         laporanTemplate={parentLap}
+        laporanList={laporanList}
+        petugasList={petugasList}
         appSettings={appSettings}
         onSaveAppSettings={handleSaveAppSettings}
         onUpdateProfile={handleUpdateProfile}
-        onBack={() => setPrintingKegiatan(null)}
+        onBack={() => {
+          setPrintingKegiatan(null);
+          setPrintingKegiatanList(null);
+        }}
         addToast={addToast}
       />
     );
@@ -639,21 +663,20 @@ export default function App() {
 
         {/* Main Content View */}
         <main className="flex-1 p-4 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full">
-          {/* Trial Notice Banner */}
+          {/* Support Notice Banner */}
           {!isLicensed && (
             <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl p-3 mb-6 flex items-center justify-between text-xs text-amber-900 dark:text-amber-200">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                 <span>
-                  <strong>Aplikasi Mode Trial:</strong> Anda telah menggunakan{" "}
-                  <strong>{myKegiatanCount}/5</strong> kegiatan.
+                  Bantu Developer untuk mengembangkan aplikasi ini menjadi lebih baik
                 </span>
               </div>
               <button
                 onClick={() => handleNavigate("lisensi")}
                 className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[11px] shrink-0"
               >
-                Cek Status Lisensi
+                Support
               </button>
             </div>
           )}
@@ -682,6 +705,7 @@ export default function App() {
                 <KegiatanHarianView
                   currentUser={currentUser}
                   kegiatanList={kegiatanList}
+                  laporanList={laporanList}
                   rencanaBulananList={rencanaBulananList}
                   rencanaHarianList={rencanaHarianList}
                   petugasList={petugasList}
@@ -692,6 +716,7 @@ export default function App() {
                   onSaveKegiatan={handleSaveKegiatan}
                   onDeleteKegiatan={handleDeleteKegiatan}
                   onPrintReport={(keg) => setPrintingKegiatan(keg)}
+                  onPrintReportList={(list) => setPrintingKegiatanList(list)}
                   addToast={addToast}
                   onNavigateToLisensi={() => handleNavigate("lisensi")}
                 />
