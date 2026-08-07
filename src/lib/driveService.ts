@@ -571,9 +571,9 @@ export async function uploadPdfViaAppsScriptWebhook(
     
     // Attempt 2: Server-side proxy fallback (Bypasses all client browser CORS & hosting restrictions)
     try {
-      onProgress?.(80, "Menggunakan server proxy untuk mengunggah...");
+      onProgress?.(80, "Menguji koneksi server...");
       const proxyController = new AbortController();
-      const proxyTimeoutId = setTimeout(() => proxyController.abort(), 20000);
+      const proxyTimeoutId = setTimeout(() => proxyController.abort(), 10000);
 
       const proxyRes = await fetch("/api/upload-drive-webhook", {
         method: "POST",
@@ -591,8 +591,8 @@ export async function uploadPdfViaAppsScriptWebhook(
 
       const contentType = proxyRes.headers.get("content-type") || "";
       if (!contentType.includes("application/json")) {
-        // If static hosting returned 404 HTML page instead of JSON API response
-        throw new Error(clientErr?.message || "Koneksi ke Webhook Apps Script gagal/timeout. Pastikan izin Web App 'Siapa saja' (Anyone).");
+        // Static hosting like Vercel returns HTML page (404/200 SPA)
+        throw new Error("STATIC_HOSTING_NO_PROXY");
       }
 
       const proxyJson = await proxyRes.json();
@@ -610,7 +610,39 @@ export async function uploadPdfViaAppsScriptWebhook(
       }
     } catch (proxyErr: any) {
       console.error("Proxy upload fallback failed:", proxyErr);
-      // Re-throw initial client error if proxy also fails or is unavailable
+
+      const fullErrStr = `${clientErr?.message || ""} ${proxyErr?.message || ""}`;
+      if (
+        fullErrStr.includes("Access denied: DriveApp") ||
+        fullErrStr.includes("Access denied") ||
+        fullErrStr.includes("DriveApp")
+      ) {
+        throw new Error(
+          `Gagal: Izin Google Drive Belum Disetujui (Exception: Access denied: DriveApp).\n\n` +
+          `SOLUSI PERBAIKAN SANGAT MUDAH (Cukup 1x di script.google.com):\n` +
+          `1. Buka script Anda di https://script.google.com\n` +
+          `2. Di bagian atas editor, pilih fungsi 'testDriveAccess' lalu klik tombol 'Jalankan' (Run).\n` +
+          `3. Klik tombol 'Izin Akses' (Authorize Access) > Pilih Akun Google Anda > Klik 'Lanjutan' (Advanced) > Klik 'Izinkan' (Allow).\n` +
+          `4. Klik 'Terapkan' (Deploy) > 'Penerapan Baru' (New deployment) > Pastikan 'Jalankan sebagai: Saya (Me)' dan 'Akses: Siapa saja (Anyone)' > Klik Terapkan.`
+        );
+      }
+
+      const origMessage = clientErr?.message || "";
+      if (
+        origMessage.includes("Failed to fetch") ||
+        origMessage.includes("NetworkError") ||
+        origMessage.includes("abort") ||
+        proxyErr?.message === "STATIC_HOSTING_NO_PROXY"
+      ) {
+        throw new Error(
+          `Gagal mengunggah file ke Google Drive (Vercel).\n\n` +
+          `Penyebab Utama & Solusi Google Apps Script:\n` +
+          `1. Akses Web App belum set "Siapa saja" (Anyone): Di Google Apps Script, klik Terapkan > Kelola Penerapan > ubah Siapa yang memiliki akses menjadi 'Siapa saja' (Anyone).\n` +
+          `2. Wajib buat 'Penerapan Baru' (New Deployment): Di Google Apps Script, klik Terapkan > Penerapan Baru > Terapkan agar URL Webhook /exec ter-update.\n` +
+          `3. URL Webhook harus berakhiran '/exec' dan diawali 'https://script.google.com/macros/s/...'.`
+        );
+      }
+
       throw new Error(
         proxyErr?.message || clientErr?.message || "Gagal mengunggah file via Webhook Apps Script."
       );
