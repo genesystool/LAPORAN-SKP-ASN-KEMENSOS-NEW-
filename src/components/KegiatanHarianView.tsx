@@ -596,7 +596,13 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
 
   // Export All / Selected Kegiatan to PDF directly using official report format bundled into ZIP
   const [isGeneratingPdfAll, setIsGeneratingPdfAll] = useState(false);
-  const [pdfExportProgressText, setPdfExportProgressText] = useState("");
+  const [exportingKegiatanItem, setExportingKegiatanItem] = useState<KegiatanHarian | null>(null);
+  const [exportProgressInfo, setExportProgressInfo] = useState<{
+    current: number;
+    total: number;
+    percent: number;
+    text: string;
+  }>({ current: 0, total: 0, percent: 0, text: "" });
 
   const handleExportAllPdf = async () => {
     const itemsToExport =
@@ -610,22 +616,42 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
     }
 
     setIsGeneratingPdfAll(true);
-    setPdfExportProgressText(`Menyiapkan ${itemsToExport.length} file...`);
+    setExportProgressInfo({
+      current: 0,
+      total: itemsToExport.length,
+      percent: 0,
+      text: `Menyiapkan ${itemsToExport.length} laporan kegiatan...`,
+    });
 
-    // Brief delay to ensure DOM elements are ready for rendering
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    const zip = new JSZip();
+    const usedFileNames = new Set<string>();
+    const rhkCounters = new Map<string, number>();
 
     try {
-      const zip = new JSZip();
-      const usedFileNames = new Set<string>();
-      const rhkCounters = new Map<string, number>();
-
       for (let i = 0; i < itemsToExport.length; i++) {
         const kegItem = itemsToExport[i];
-        setPdfExportProgressText(`Proses ${i + 1}/${itemsToExport.length}...`);
+        const progressPct = Math.round(((i + 1) / itemsToExport.length) * 85);
 
-        const element = document.getElementById(`export-single-paper-${kegItem.id}`);
-        if (!element) continue;
+        setExportProgressInfo({
+          current: i + 1,
+          total: itemsToExport.length,
+          percent: progressPct,
+          text: `Memproses Laporan ${i + 1} dari ${itemsToExport.length}...`,
+        });
+
+        // 1. Mount current item in DOM at top:0, left:0 for valid html2canvas bounding box
+        setExportingKegiatanItem(kegItem);
+
+        // 2. Wait 200ms for React to render DOM and update layout
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        const element = document.getElementById("active-single-export-paper");
+        if (!element) {
+          console.warn(`Elemen ekspor tidak ditemukan untuk ID ${kegItem.id}`);
+          setExportingKegiatanItem(null);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          continue;
+        }
 
         const parentRb = rencanaBulananList.find((rb) => rb.id === kegItem.rencana_bulanan_id);
         const parentRh = rencanaHarianList.find((rh) => rh.id === kegItem.rencana_harian_id);
@@ -638,8 +664,7 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
         const noUrut = (rhkCounters.get(rhkKey) || 0) + 1;
         rhkCounters.set(rhkKey, noUrut);
 
-        // Determine RHK Label (e.g. RHK. 8.1.1 - showing RHK Bulanan 8, RHK Harian 1, no urut 1)
-
+        // Determine RHK Label (e.g. RHK. 8.1.1)
         let rhkLabel = "RHK";
         if (noRb && noRh) {
           rhkLabel = `RHK. ${noRb}.${noRh}.${noUrut}`;
@@ -679,14 +704,43 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
           html2canvas: {
             scale: 2,
             useCORS: true,
+            allowTaint: false,
             logging: false,
             backgroundColor: "#ffffff",
-            windowWidth: 718, // 190mm in px at 96dpi is ~718px
+            windowWidth: 718, // ~190mm in px at 96dpi
             onclone: (clonedDoc: Document) => {
               clonedDoc.documentElement.classList.remove("dark");
               clonedDoc.body.classList.remove("dark");
               clonedDoc.documentElement.style.backgroundColor = "#ffffff";
               clonedDoc.body.style.backgroundColor = "#ffffff";
+
+              const targetEl = clonedDoc.getElementById("active-single-export-paper");
+              if (targetEl) {
+                targetEl.style.display = "block";
+                targetEl.style.visibility = "visible";
+                targetEl.style.opacity = "1";
+                targetEl.style.position = "relative";
+                targetEl.style.left = "0";
+                targetEl.style.top = "0";
+
+                let p: HTMLElement | null = targetEl.parentElement;
+                while (p && p !== clonedDoc.body) {
+                  p.style.display = "block";
+                  p.style.visibility = "visible";
+                  p.style.opacity = "1";
+                  p = p.parentElement;
+                }
+              }
+
+              const images = Array.from(clonedDoc.querySelectorAll("img"));
+              images.forEach((img) => {
+                if (img.src && !img.src.startsWith("data:")) {
+                  img.crossOrigin = "anonymous";
+                  img.onerror = () => {
+                    img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+                  };
+                }
+              });
 
               const styleTags = Array.from(clonedDoc.querySelectorAll("style"));
               styleTags.forEach((styleTag) => {
@@ -698,7 +752,6 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
                 }
               });
 
-              // Only avoid breaking inside signature or specific photo items
               const avoidEls = clonedDoc.querySelectorAll(".signature-box, .photo-item, .prevent-break");
               avoidEls.forEach((el) => {
                 const htmlEl = el as HTMLElement;
@@ -715,32 +768,89 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
           },
         };
 
-        const pdfBlob: Blob = await html2pdf().set(opt).from(element).output("blob");
-        zip.file(fileName, pdfBlob);
+        try {
+          const pdfBlob: Blob = await html2pdf().set(opt).from(element).output("blob");
+          if (pdfBlob && pdfBlob.size > 0) {
+            zip.file(fileName, pdfBlob);
+          }
+        } catch (itemErr) {
+          console.error(`Gagal membuat PDF untuk ${fileName}:`, itemErr);
+          try {
+            const fallbackOpt = {
+              ...opt,
+              html2canvas: { ...opt.html2canvas, scale: 1 },
+            };
+            const pdfBlob: Blob = await html2pdf().set(fallbackOpt).from(element).output("blob");
+            if (pdfBlob && pdfBlob.size > 0) {
+              zip.file(fileName, pdfBlob);
+            }
+          } catch (fallbackErr) {
+            console.error(`Fallback PDF gagal untuk ${fileName}:`, fallbackErr);
+          }
+        }
+
+        // 3. Unmount active item & yield UI thread to avoid browser freeze
+        setExportingKegiatanItem(null);
+        await new Promise((resolve) => setTimeout(resolve, 80));
       }
 
-      setPdfExportProgressText("Mengemas file ZIP...");
-      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const generatedFilesCount = Object.keys(zip.files).length;
+      if (generatedFilesCount === 0) {
+        throw new Error("Tidak ada file PDF yang berhasil dibuat. Periksa data kegiatan Anda.");
+      }
+
+      setExportProgressInfo({
+        current: itemsToExport.length,
+        total: itemsToExport.length,
+        percent: 90,
+        text: "Mengemas seluruh PDF ke dalam file ZIP...",
+      });
+
+      const zipBlob = await zip.generateAsync(
+        {
+          type: "blob",
+          compression: "DEFLATE",
+          compressionOptions: { level: 6 },
+        },
+        (metadata) => {
+          const zipPct = 90 + Math.round(metadata.percent * 0.1);
+          setExportProgressInfo({
+            current: itemsToExport.length,
+            total: itemsToExport.length,
+            percent: zipPct,
+            text: `Mengemas ZIP (${Math.round(metadata.percent)}%)...`,
+          });
+        }
+      );
+
       const zipFileName = `Rekap_Laporan_Kegiatan_${currentUser.nip || "ASN"}_${new Date().toISOString().split("T")[0]}.zip`;
 
+      const blobUrl = URL.createObjectURL(zipBlob);
       const link = document.createElement("a");
-      link.href = URL.createObjectURL(zipBlob);
+      link.href = blobUrl;
       link.download = zipFileName;
+      link.style.display = "none";
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+
+      setTimeout(() => {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+        URL.revokeObjectURL(blobUrl);
+      }, 20000);
 
       addToast(
         "success",
-        `Berhasil mengunduh ZIP (${itemsToExport.length} file PDF laporan resmi)!`
+        `Berhasil mengunduh ZIP (${generatedFilesCount} file PDF laporan)!`
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error("Export PDF ZIP Error:", err);
-      addToast("error", "Gagal mengunduh file ZIP laporan kegiatan.");
+      addToast("error", err?.message || "Gagal mengunduh file ZIP laporan kegiatan.");
     } finally {
+      setExportingKegiatanItem(null);
       setIsGeneratingPdfAll(false);
-      setPdfExportProgressText("");
+      setExportProgressInfo({ current: 0, total: 0, percent: 0, text: "" });
     }
   };
 
@@ -798,7 +908,7 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
               {isGeneratingPdfAll ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>{pdfExportProgressText || "Mengekspor PDF..."}</span>
+                  <span>{exportProgressInfo.text || "Mengekspor PDF..."}</span>
                 </>
               ) : (
                 <>
@@ -1381,7 +1491,7 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
                   {isGeneratingPdfAll ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>{pdfExportProgressText || "Proses PDF..."}</span>
+                      <span>{exportProgressInfo.text || "Proses PDF..."}</span>
                     </>
                   ) : (
                     <>
@@ -1849,266 +1959,314 @@ export const KegiatanHarianView: React.FC<KegiatanHarianViewProps> = ({
         </div>
       )}
 
-      {/* Hidden Printable Container for Bulk PDF Export in Official Report Format */}
-      <div className="fixed -left-[9999px] -top-[9999px] pointer-events-none opacity-0 overflow-hidden">
-        <div
-          id="export-all-pdf-paper"
-          className="w-[210mm] bg-white text-slate-900 p-[12mm] font-serif text-[11pt] leading-relaxed"
-          style={{ backgroundColor: "#ffffff", color: "#0f172a" }}
-        >
-          {(selectedIds.length > 0
-            ? filteredKegiatan.filter((item) => selectedIds.includes(item.id))
-            : filteredKegiatan
-          ).map((kegItem, kegIdx) => {
-            const parentRb = rencanaBulananList.find((rb) => rb.id === kegItem.rencana_bulanan_id);
-            const parentRh = rencanaHarianList.find((rh) => rh.id === kegItem.rencana_harian_id);
-            const officer = (petugasList || []).find((p) => p.id === kegItem.petugas_id) || currentUser;
-            const lapTemplate = (laporanList || []).find(
-              (l) => l.nomor_rhk === parentRb?.no_rhk && l.petugas_id === officer.id
-            );
-
-            const rkTitle = parentRb?.rencana_kerja || "PELAKSANAAN TUGAS OPERASIONAL";
-            const formattedDate = kegItem.tanggal ? formatIndonesianDate(kegItem.tanggal) : "-";
-            const hariTanggalStr = `${kegItem.haritglkegiatan || ""}, ${formattedDate}`.trim();
-            const tempatStr = `${kegItem.tempat ? `di ${kegItem.tempat} ` : ""}${
-              kegItem.desa ? `desa ${kegItem.desa}` : ""
-            }`.trim() || "-";
-
-            const itemUmum =
-              lapTemplate?.umum ||
-              "Laporan ini disusun sebagai bentuk pertanggungjawaban pelaksanaan tugas operasional ASN dalam rangka meningkatkan akuntabilitas dan efektivitas pelayanan publik.";
-            const itemMaksud =
-              lapTemplate?.maksud_tujuan ||
-              "Maksud kegiatan ini adalah untuk memastikan seluruh tahapan pendampingan berjalan sesuai standar operasional baku dan mencapai target kinerja yang ditetapkan.";
-            const itemRuang =
-              lapTemplate?.ruang_lingkup ||
-              "Ruang lingkup laporan meliputi persiapan administrasi, koordinasi instansi, serta verifikasi lapangan di wilayah kerja.";
-            const itemDasar =
-              lapTemplate?.dasar ||
-              "1. Peraturan Menteri tentang Standar Pelayanan Operasional.\n2. Surat Perintah Tugas Kepala Dinas/Instansi.";
-            const itemSimpulan =
-              lapTemplate?.simpulan ||
-              "Kegiatan pendampingan telah terlaksana dengan lancar dan memberikan kontribusi positif bagi indikator kinerja organisasi.";
-            const itemPenutup =
-              lapTemplate?.penutup ||
-              "Demikian laporan pelaksanaan kegiatan ini dibuat dengan sebenarnya untuk dipergunakan sebagaimana mestinya.";
-
-            const userNama = officer.nama || currentUser.nama || "-";
-            const userNip = officer.nip || currentUser.nip || "-";
-            const userTtd = officer.scan_ttd || currentUser.scan_ttd || "";
-            const tempatDibuat = officer.tempat_dibuat || "Kualasimpang";
-
-            const itemPhotos = kegItem.foto_kegiatan1 || [];
-            const itemPhotoChunks: string[][] = [];
-            for (let i = 0; i < itemPhotos.length; i += 2) {
-              itemPhotoChunks.push(itemPhotos.slice(i, i + 2));
-            }
-
-            const effectiveKopMode = appSettings?.kop_mode || "auto";
-            const kopMarginTop = appSettings?.kop_margin_top ?? 0;
-            const kopMarginBottom = appSettings?.kop_margin_bottom ?? 0;
-
-            return (
-              <div
-                key={kegItem.id || kegIdx}
-                id={`export-single-paper-${kegItem.id}`}
-                className="w-[190mm] max-w-[190mm] bg-white text-slate-900 px-3 py-2 font-serif text-[10.5pt] leading-relaxed mb-10 box-border overflow-hidden"
-                style={{ backgroundColor: "#ffffff", color: "#0f172a" }}
-              >
-                {/* Kop Surat Header */}
-                <div style={{ marginTop: `${kopMarginTop}mm`, marginBottom: `${kopMarginBottom}mm` }}>
-                  {effectiveKopMode === "image" && appSettings?.kop_surat_url ? (
-                    <div className="mb-6 text-center">
-                      <img
-                        src={appSettings.kop_surat_url}
-                        alt="Kop Surat Official"
-                        className="w-full max-h-36 object-contain mx-auto border-b-4 border-double border-black pb-2"
-                      />
-                    </div>
-                  ) : (
-                    <div className="border-b-4 border-double border-black pb-4 mb-6 text-center">
-                      <div className="flex items-center justify-center gap-4">
-                        <div className="w-14 h-14 rounded-full border-2 border-slate-900 flex items-center justify-center font-bold text-[10px] bg-slate-100 uppercase tracking-widest shrink-0">
-                          KEMENSOS
-                        </div>
-                        <div>
-                          <h2 className="text-sm md:text-base font-extrabold tracking-wider uppercase text-slate-900">
-                            {appSettings?.instansi_header || "KEMENTERIAN SOSIAL REPUBLIK INDONESIA"}
-                          </h2>
-                          <p className="text-xs font-serif italic text-slate-700">
-                            {appSettings?.sub_header || "Direktorat Jenderal Pemberdayaan Sosial / Dinas Sosial"}
-                          </p>
-                          <p className="text-[10px] text-slate-600">
-                            {appSettings?.alamat_header || "Jl. Salemba Raya No. 28, Jakarta Pusat / Kantor Wilayah Daerah"}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Title Section */}
-                <div className="text-center my-6 space-y-1">
-                  <h3 className="font-bold uppercase tracking-wide text-slate-900">
-                    LAPORAN TENTANG
-                  </h3>
-                  <h3 className="font-bold uppercase underline tracking-wide text-slate-900">
-                    {rkTitle}
-                  </h3>
-                </div>
-
-                {/* Report Body */}
-                <div className="space-y-6 text-justify">
-                  {/* Section I */}
-                  <div className="report-block mb-5">
-                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">I. PENDAHULUAN</h4>
-                    <div className="pl-4 space-y-2.5">
-                      <div>
-                        <p className="font-bold text-slate-900 mb-0.5">1. Umum</p>
-                        <div className="pl-1">{renderFormattedContent(itemUmum)}</div>
-                      </div>
-                      <div>
-                        <p className="font-bold text-slate-900 mb-0.5">2. Maksud dan Tujuan</p>
-                        <div className="pl-1">{renderFormattedContent(itemMaksud)}</div>
-                      </div>
-                      <div>
-                        <p className="font-bold text-slate-900 mb-0.5">3. Ruang Lingkup</p>
-                        <div className="pl-1">{renderFormattedContent(itemRuang)}</div>
-                      </div>
-                      <div>
-                        <p className="font-bold text-slate-900 mb-0.5">4. Dasar</p>
-                        <div className="pl-1">{renderFormattedContent(itemDasar)}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Section II */}
-                  <div className="report-block mb-5">
-                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">II. PELAKSANAAN KEGIATAN</h4>
-                    <div className="pl-4 space-y-2.5">
-                      <div>
-                        {renderFormattedContent(kegItem.isi_kegiatan)}
-                      </div>
-                      <p className="pt-1 font-semibold text-slate-900">Jam dan Tanggal Kegiatan dilaksanakan pada jadwal berikut:</p>
-                      <table className="w-full max-w-md ml-2 font-serif text-inherit border-collapse">
-                        <tbody>
-                          <tr>
-                            <td className="w-32 py-1 font-semibold align-top text-slate-900">Hari / Tanggal</td>
-                            <td className="py-1 align-top text-slate-900">: {hariTanggalStr}</td>
-                          </tr>
-                          <tr>
-                            <td className="py-1 font-semibold align-top text-slate-900">Waktu</td>
-                            <td className="py-1 align-top text-slate-900">: {kegItem.waktu || "-"}</td>
-                          </tr>
-                          <tr>
-                            <td className="py-1 font-semibold align-top text-slate-900">Tempat Kegiatan</td>
-                            <td className="py-1 align-top text-slate-900">: {tempatStr}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Section III */}
-                  <div className="report-block mb-5">
-                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">III. HASIL YANG DICAPAI</h4>
-                    <div className="pl-4">
-                      {renderFormattedContent(kegItem.hasil)}
-                    </div>
-                  </div>
-
-                  {/* Section IV */}
-                  <div className="report-block mb-5">
-                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">IV. SIMPULAN DAN SARAN</h4>
-                    <div className="pl-4">
-                      {renderFormattedContent(itemSimpulan)}
-                    </div>
-                  </div>
-
-                  {/* Section V */}
-                  <div className="report-block mb-5">
-                    <h4 className="font-bold mb-1.5 uppercase text-slate-900">V. PENUTUP</h4>
-                    <div className="pl-4">
-                      {renderFormattedContent(itemPenutup)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Signature Box */}
-                <div
-                  className="signature-box mt-10 flex justify-end break-inside-avoid page-break-inside-avoid"
-                  style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
-                >
+      {/* Export PDF & ZIP Progress Modal */}
+      {isGeneratingPdfAll && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-6 md:p-8 max-w-md w-full text-center shadow-2xl space-y-5">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto shadow-inner">
+              <Loader2 className="w-8 h-8 animate-spin" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Memproses Unduh Rekap PDF (ZIP)</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                {exportProgressInfo.text || "Mohon tunggu, sedang merender PDF & mengemas file ZIP..."}
+              </p>
+            </div>
+            {exportProgressInfo.total > 0 && (
+              <div className="space-y-2">
+                <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700/50">
                   <div
-                    className="w-64 font-serif text-inherit space-y-1 break-inside-avoid page-break-inside-avoid"
-                    style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
-                  >
-                    <p>Dibuat di : {tempatDibuat}</p>
-                    <p>Pada Tanggal : {formattedDate}</p>
-                    <p className="font-semibold pt-1">Penata Layanan Operasional</p>
-
-                    <div className="h-20 flex items-center py-1">
-                      {userTtd ? (
-                        <img src={userTtd} alt="TTD" className="h-16 object-contain" />
-                      ) : (
-                        <div className="h-16" />
-                      )}
-                    </div>
-
-                    <p className="font-bold underline text-inherit">{userNama}</p>
-                    <p className="font-serif text-inherit">NIP. {userNip}</p>
-                  </div>
+                    className="bg-gradient-to-r from-amber-500 to-emerald-400 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${Math.max(5, exportProgressInfo.percent)}%` }}
+                  />
                 </div>
+                <div className="flex justify-between items-center text-[11px] font-mono text-slate-400 px-1">
+                  <span>{exportProgressInfo.current} / {exportProgressInfo.total} File</span>
+                  <span>{Math.round(exportProgressInfo.percent)}%</span>
+                </div>
+              </div>
+            )}
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-left">
+              <p className="text-[11px] text-amber-300/90 leading-relaxed font-medium">
+                💡 <strong>Info:</strong> Laporan dirender secara bertahap untuk memastikan isi PDF lengkap dan mencegah antarmuka membeku (freeze) di Vercel/Cloud Hosting.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
-                {/* Photos Annex */}
-                {itemPhotoChunks.length > 0 && (
-                  <div className="mt-12">
-                    {itemPhotoChunks.map((chunk, pageIndex) => (
-                      <div
-                        key={pageIndex}
-                        className="pt-8 border-t border-slate-300 break-before-page page-break-before break-inside-avoid page-break-inside-avoid"
-                        style={{
-                          breakBefore: "page",
-                          pageBreakBefore: "always",
-                          breakInside: "avoid",
-                          pageBreakInside: "avoid",
-                          marginTop: pageIndex > 0 ? "2rem" : undefined,
-                        }}
-                      >
-                        <h3 className="text-center font-bold text-sm uppercase mb-6 text-slate-900">
-                          LAMPIRAN DOKUMENTASI KEGIATAN{" "}
-                          {itemPhotoChunks.length > 1 ? `(HALAMAN ${pageIndex + 1})` : ""}
-                        </h3>
-                        <div className="flex flex-col space-y-6 items-center">
-                          {chunk.map((foto, idxWithinChunk) => {
-                            const globalIdx = pageIndex * 2 + idxWithinChunk;
-                            return (
-                              <div
-                                key={globalIdx}
-                                className="text-center space-y-2 w-full max-w-lg break-inside-avoid page-break-inside-avoid"
-                                style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
-                              >
-                                <img
-                                  src={foto}
-                                  alt={`Dokumentasi ${globalIdx + 1}`}
-                                  className="max-w-full max-h-[360px] w-auto h-auto object-contain rounded-md border border-slate-300 shadow-2xs mx-auto bg-slate-50"
-                                />
-                                <p className="text-[11px] text-slate-700 font-serif italic font-medium">
-                                  Dokumentasi {globalIdx + 1}: {kegItem.tempat || "Lokasi Kegiatan"}
-                                </p>
-                              </div>
-                            );
-                          })}
-                        </div>
+      {/* Active Single Paper Export Stage (rendered at top:0, left:0 for 100% valid html2canvas bounds) */}
+      {exportingKegiatanItem && (() => {
+        const kegItem = exportingKegiatanItem;
+        const parentRb = rencanaBulananList.find((rb) => rb.id === kegItem.rencana_bulanan_id);
+        const parentRh = rencanaHarianList.find((rh) => rh.id === kegItem.rencana_harian_id);
+        const officer = (petugasList || []).find((p) => p.id === kegItem.petugas_id || (p.nip && p.nip === kegItem.petugas_id)) || currentUser;
+        const lapTemplate =
+          (laporanList || []).find(
+            (l) =>
+              Number(l.nomor_rhk) === Number(parentRb?.no_rhk) &&
+              (l.petugas_id === officer.id || (officer.nip && l.petugas_id === officer.nip))
+          ) ||
+          (laporanList || []).find(
+            (l) => Number(l.nomor_rhk) === Number(parentRb?.no_rhk) && l.petugas_id === kegItem.petugas_id
+          ) ||
+          (laporanList || []).find(
+            (l) =>
+              Number(l.nomor_rhk) === Number(parentRb?.no_rhk) &&
+              (l.petugas_id === currentUser.id || (currentUser.nip && l.petugas_id === currentUser.nip))
+          ) ||
+          (laporanList || []).find((l) => Number(l.nomor_rhk) === Number(parentRb?.no_rhk)) ||
+          null;
+
+        const rkTitle = parentRb?.rencana_kerja || "PELAKSANAAN TUGAS OPERASIONAL";
+        const formattedDate = kegItem.tanggal ? formatIndonesianDate(kegItem.tanggal) : "-";
+        const hariTanggalStr = `${kegItem.haritglkegiatan || ""}, ${formattedDate}`.trim();
+        const tempatStr = `${kegItem.tempat ? `di ${kegItem.tempat} ` : ""}${
+          kegItem.desa ? `desa ${kegItem.desa}` : ""
+        }`.trim() || "-";
+
+        const itemUmum =
+          lapTemplate?.umum ||
+          "Laporan ini disusun sebagai bentuk pertanggungjawaban pelaksanaan tugas operasional ASN dalam rangka meningkatkan akuntabilitas dan efektivitas pelayanan publik.";
+        const itemMaksud =
+          lapTemplate?.maksud_tujuan ||
+          "Maksud kegiatan ini adalah untuk memastikan seluruh tahapan pendampingan berjalan sesuai standar operasional baku dan mencapai target kinerja yang ditetapkan.";
+        const itemRuang =
+          lapTemplate?.ruang_lingkup ||
+          "Ruang lingkup laporan meliputi persiapan administrasi, koordinasi instansi, serta verifikasi lapangan di wilayah kerja.";
+        const itemDasar =
+          lapTemplate?.dasar ||
+          "1. Peraturan Menteri tentang Standar Pelayanan Operasional.\n2. Surat Perintah Tugas Kepala Dinas/Instansi.";
+        const itemSimpulan =
+          lapTemplate?.simpulan ||
+          "Kegiatan pendampingan telah terlaksana dengan lancar dan memberikan kontribusi positif bagi indikator kinerja organisasi.";
+        const itemPenutup =
+          lapTemplate?.penutup ||
+          "Demikian laporan pelaksanaan kegiatan ini dibuat dengan sebenarnya untuk dipergunakan sebagaimana mestinya.";
+
+        const userNama = officer.nama || currentUser.nama || "-";
+        const userNip = officer.nip || currentUser.nip || "-";
+        const userTtd = officer.scan_ttd || currentUser.scan_ttd || "";
+        const tempatDibuat = officer.tempat_dibuat || "Kualasimpang";
+
+        const itemPhotos = kegItem.foto_kegiatan1 || [];
+        const itemPhotoChunks: string[][] = [];
+        for (let i = 0; i < itemPhotos.length; i += 2) {
+          itemPhotoChunks.push(itemPhotos.slice(i, i + 2));
+        }
+
+        const effectiveKopMode = appSettings?.kop_mode || "auto";
+        const kopMarginTop = appSettings?.kop_margin_top ?? 0;
+        const kopMarginBottom = appSettings?.kop_margin_bottom ?? 0;
+
+        return (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: "-9999px",
+              width: "210mm",
+              opacity: 1,
+              zIndex: -999,
+              backgroundColor: "#ffffff",
+              color: "#0f172a",
+              pointerEvents: "none",
+              boxSizing: "border-box",
+            }}
+          >
+            <div
+              id="active-single-export-paper"
+              className="w-[190mm] max-w-[190mm] bg-white text-slate-900 px-3 py-2 font-serif text-[10.5pt] leading-relaxed box-border overflow-hidden"
+              style={{ backgroundColor: "#ffffff", color: "#0f172a" }}
+            >
+              {/* Kop Surat Header */}
+              <div style={{ marginTop: `${kopMarginTop}mm`, marginBottom: `${kopMarginBottom}mm` }}>
+                {effectiveKopMode === "image" && appSettings?.kop_surat_url ? (
+                  <div className="mb-6 text-center">
+                    <img
+                      src={appSettings.kop_surat_url}
+                      alt="Kop Surat Official"
+                      className="w-full max-h-36 object-contain mx-auto border-b-4 border-double border-black pb-2"
+                    />
+                  </div>
+                ) : (
+                  <div className="border-b-4 border-double border-black pb-4 mb-6 text-center">
+                    <div className="flex items-center justify-center gap-4">
+                      <div className="w-14 h-14 rounded-full border-2 border-slate-900 flex items-center justify-center font-bold text-[10px] bg-slate-100 uppercase tracking-widest shrink-0">
+                        KEMENSOS
                       </div>
-                    ))}
+                      <div>
+                        <h2 className="text-sm md:text-base font-extrabold tracking-wider uppercase text-slate-900">
+                          {appSettings?.instansi_header || "KEMENTERIAN SOSIAL REPUBLIK INDONESIA"}
+                        </h2>
+                        <p className="text-xs font-serif italic text-slate-700">
+                          {appSettings?.sub_header || "Direktorat Jenderal Pemberdayaan Sosial / Dinas Sosial"}
+                        </p>
+                        <p className="text-[10px] text-slate-600">
+                          {appSettings?.alamat_header || "Jl. Salemba Raya No. 28, Jakarta Pusat / Kantor Wilayah Daerah"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
-            );
-          })}
-        </div>
-      </div>
+
+              {/* Title Section */}
+              <div className="text-center my-6 space-y-1">
+                <h3 className="font-bold uppercase tracking-wide text-slate-900">
+                  LAPORAN TENTANG
+                </h3>
+                <h3 className="font-bold uppercase underline tracking-wide text-slate-900">
+                  {rkTitle}
+                </h3>
+              </div>
+
+              {/* Report Body */}
+              <div className="space-y-6 text-justify">
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">I. PENDAHULUAN</h4>
+                  <div className="pl-4 space-y-2.5">
+                    <div>
+                      <p className="font-bold text-slate-900 mb-0.5">1. Umum</p>
+                      <div className="pl-1">{renderFormattedContent(itemUmum)}</div>
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 mb-0.5">2. Maksud dan Tujuan</p>
+                      <div className="pl-1">{renderFormattedContent(itemMaksud)}</div>
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 mb-0.5">3. Ruang Lingkup</p>
+                      <div className="pl-1">{renderFormattedContent(itemRuang)}</div>
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 mb-0.5">4. Dasar</p>
+                      <div className="pl-1">{renderFormattedContent(itemDasar)}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">II. PELAKSANAAN KEGIATAN</h4>
+                  <div className="pl-4 space-y-2.5">
+                    <div>
+                      {renderFormattedContent(kegItem.isi_kegiatan)}
+                    </div>
+                    <p className="pt-1 font-semibold text-slate-900">Jam dan Tanggal Kegiatan dilaksanakan pada jadwal berikut:</p>
+                    <table className="w-full max-w-md ml-2 font-serif text-inherit border-collapse">
+                      <tbody>
+                        <tr>
+                          <td className="w-32 py-1 font-semibold align-top text-slate-900">Hari / Tanggal</td>
+                          <td className="py-1 align-top text-slate-900">: {hariTanggalStr}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1 font-semibold align-top text-slate-900">Waktu</td>
+                          <td className="py-1 align-top text-slate-900">: {kegItem.waktu || "-"}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1 font-semibold align-top text-slate-900">Tempat Kegiatan</td>
+                          <td className="py-1 align-top text-slate-900">: {tempatStr}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">III. HASIL YANG DICAPAI</h4>
+                  <div className="pl-4">
+                    {renderFormattedContent(kegItem.hasil)}
+                  </div>
+                </div>
+
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">IV. SIMPULAN DAN SARAN</h4>
+                  <div className="pl-4">
+                    {renderFormattedContent(itemSimpulan)}
+                  </div>
+                </div>
+
+                <div className="report-block mb-5">
+                  <h4 className="font-bold mb-1.5 uppercase text-slate-900">V. PENUTUP</h4>
+                  <div className="pl-4">
+                    {renderFormattedContent(itemPenutup)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Signature Box */}
+              <div
+                className="signature-box mt-10 flex justify-end break-inside-avoid page-break-inside-avoid"
+                style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+              >
+                <div
+                  className="w-64 font-serif text-inherit space-y-1 break-inside-avoid page-break-inside-avoid"
+                  style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+                >
+                  <p>Dibuat di : {tempatDibuat}</p>
+                  <p>Pada Tanggal : {formattedDate}</p>
+                  <p className="font-semibold pt-1">Penata Layanan Operasional</p>
+
+                  <div className="h-20 flex items-center py-1">
+                    {userTtd ? (
+                      <img src={userTtd} alt="TTD" className="h-16 object-contain" />
+                    ) : (
+                      <div className="h-16" />
+                    )}
+                  </div>
+
+                  <p className="font-bold underline text-inherit">{userNama}</p>
+                  <p className="font-serif text-inherit">NIP. {userNip}</p>
+                </div>
+              </div>
+
+              {/* Photos Annex */}
+              {itemPhotoChunks.length > 0 && (
+                <div className="mt-12">
+                  {itemPhotoChunks.map((chunk, pageIndex) => (
+                    <div
+                      key={pageIndex}
+                      className="pt-8 border-t border-slate-300 break-before-page page-break-before break-inside-avoid page-break-inside-avoid"
+                      style={{
+                        breakBefore: "page",
+                        pageBreakBefore: "always",
+                        breakInside: "avoid",
+                        pageBreakInside: "avoid",
+                        marginTop: pageIndex > 0 ? "2rem" : undefined,
+                      }}
+                    >
+                      <h3 className="text-center font-bold text-sm uppercase mb-6 text-slate-900">
+                        LAMPIRAN DOKUMENTASI KEGIATAN{" "}
+                        {itemPhotoChunks.length > 1 ? `(HALAMAN ${pageIndex + 1})` : ""}
+                      </h3>
+                      <div className="flex flex-col space-y-6 items-center">
+                        {chunk.map((foto, idxWithinChunk) => {
+                          const globalIdx = pageIndex * 2 + idxWithinChunk;
+                          return (
+                            <div
+                              key={globalIdx}
+                              className="text-center space-y-2 w-full max-w-lg break-inside-avoid page-break-inside-avoid"
+                              style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+                            >
+                              <img
+                                src={foto}
+                                alt={`Dokumentasi ${globalIdx + 1}`}
+                                className="max-w-full max-h-[360px] w-auto h-auto object-contain rounded-md border border-slate-300 shadow-2xs mx-auto bg-slate-50"
+                              />
+                              <p className="text-[11px] text-slate-700 font-serif italic font-medium">
+                                Dokumentasi {globalIdx + 1}: {kegItem.tempat || "Lokasi Kegiatan"}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
