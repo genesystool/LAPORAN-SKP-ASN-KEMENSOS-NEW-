@@ -39,6 +39,7 @@ import {
   Eye,
   EyeOff,
   Plus,
+  Globe,
 } from "lucide-react";
 
 const DEFAULT_COFFEE_PACKAGES: CoffeePackage[] = [
@@ -138,6 +139,7 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
   // Kop Surat State (Admin)
   const [kopMode, setKopMode] = useState<"image" | "text">(appSettings.kop_mode || "text");
   const [kopUrl, setKopUrl] = useState<string>(appSettings.kop_surat_url || "");
+  const [faviconUrl, setFaviconUrl] = useState<string>(appSettings.favicon_url || "");
   const [instansiHeader, setInstansiHeader] = useState<string>(
     appSettings.instansi_header || "KEMENTERIAN SOSIAL REPUBLIK INDONESIA"
   );
@@ -189,6 +191,7 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
     if (appSettings) {
       if (appSettings.kop_mode) setKopMode(appSettings.kop_mode);
       if (appSettings.kop_surat_url) setKopUrl(appSettings.kop_surat_url);
+      if (appSettings.favicon_url !== undefined) setFaviconUrl(appSettings.favicon_url);
       if (appSettings.instansi_header) setInstansiHeader(appSettings.instansi_header);
       if (appSettings.sub_header) setSubHeader(appSettings.sub_header);
       if (appSettings.alamat_header) setAlamatHeader(appSettings.alamat_header);
@@ -270,6 +273,21 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
     }
   };
 
+  // Upload Favicon Image File
+  const handleFaviconFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const compressedBase64 = await compressImageFile(file, 128);
+      setFaviconUrl(compressedBase64);
+      addToast("success", "Gambar Favicon berhasil diunggah! Klik Simpan Pengaturan.");
+    } catch (err) {
+      console.error(err);
+      addToast("error", "Gagal memproses file gambar favicon!");
+    }
+  };
+
   // Save Kop Settings
   const handleSaveKopSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -280,6 +298,7 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
       const ok = await onSaveAppSettings({
         kop_mode: kopMode,
         kop_surat_url: kopUrl,
+        favicon_url: faviconUrl,
         instansi_header: instansiHeader,
         sub_header: subHeader,
         alamat_header: alamatHeader,
@@ -1024,6 +1043,84 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
               </div>
             </div>
 
+            {/* Favicon Settings Section */}
+            <div className="space-y-3 pt-4 border-t border-slate-200">
+              <div className="flex items-center gap-2">
+                <Globe className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Pengaturan Icon / Favicon Tab Browser Aplikasi
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Ubah icon logo yang tampil di tab browser saat aplikasi dibuka
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-4 bg-indigo-50/60 p-4 border border-indigo-200 rounded-xl">
+                {faviconUrl ? (
+                  <div className="relative group w-14 h-14 shrink-0 bg-white rounded-xl border border-indigo-200 flex items-center justify-center p-1.5 shadow-xs">
+                    <img src={faviconUrl} alt="Favicon Preview" className="w-full h-full object-contain rounded" />
+                    <button
+                      type="button"
+                      onClick={() => setFaviconUrl("")}
+                      className="absolute -top-2 -right-2 bg-rose-600 text-white rounded-full p-1 shadow-md hover:bg-rose-700 transition-colors cursor-pointer"
+                      title="Hapus Favicon"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="w-14 h-14 rounded-xl bg-slate-200/80 flex items-center justify-center text-slate-400 shrink-0">
+                    <Globe className="w-7 h-7 text-indigo-400" />
+                  </div>
+                )}
+
+                <div className="flex-1 space-y-2 text-center sm:text-left">
+                  <p className="text-xs font-semibold text-slate-800">
+                    {faviconUrl ? "Favicon Custom Terpasang" : "Favicon Standar / Default"}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Rekomendasi ukuran: 32x32 px atau 64x64 px (Format PNG, ICO, SVG)
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start">
+                    <label className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg cursor-pointer transition-colors shadow-xs">
+                      <Upload className="w-3.5 h-3.5" /> Upload File Favicon...
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFaviconFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {faviconUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setFaviconUrl("")}
+                        className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                      >
+                        Reset Ke Default
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Mockup Tab Browser Preview */}
+                <div className="hidden md:flex flex-col items-start bg-slate-800 text-slate-300 p-2.5 rounded-xl text-[11px] border border-slate-700 min-w-[180px]">
+                  <span className="text-[9.5px] text-slate-400 font-mono mb-1">Simulasi Tab Browser:</span>
+                  <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 w-full">
+                    {faviconUrl ? (
+                      <img src={faviconUrl} alt="Favicon" className="w-4 h-4 object-contain shrink-0" />
+                    ) : (
+                      <Globe className="w-4 h-4 text-slate-400 shrink-0" />
+                    )}
+                    <span className="font-semibold truncate text-slate-100 text-[10.5px]">Laporan SKP v2.6</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Submit Button */}
             <div className="pt-2 flex justify-end">
               <button
@@ -1032,7 +1129,7 @@ export const LisensiView: React.FC<LisensiViewProps> = ({
                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-md transition-colors"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                {isSavingKop ? "Menyimpan..." : "Simpan Pengaturan Kop Surat"}
+                {isSavingKop ? "Menyimpan..." : "Simpan Pengaturan Kop & Favicon"}
               </button>
             </div>
           </div>
