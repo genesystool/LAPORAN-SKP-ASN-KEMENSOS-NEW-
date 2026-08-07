@@ -241,7 +241,7 @@ export default function App() {
 
   // Seed Data and Listen to Firestore Realtime Updates
   useEffect(() => {
-    document.title = "Laporan SKP v2.6";
+    document.title = "Laporan SKP v2.6.1";
     seedInitialFirestoreData();
 
     const unsubPetugas = onSnapshot(collection(db, "petugas"), (snap) => {
@@ -607,8 +607,20 @@ export default function App() {
     const mainKeg = activeList[0];
     const parentRb = rencanaBulananList.find((rb) => rb.id === mainKeg?.rencana_bulanan_id) || null;
     const parentRh = rencanaHarianList.find((rh) => rh.id === mainKeg?.rencana_harian_id) || null;
-    const officer = petugasList.find((p) => p.id === mainKeg?.petugas_id) || currentUser;
-    const parentLap = laporanList.find((l) => l.nomor_rhk === parentRb?.no_rhk && l.petugas_id === officer.id) || null;
+    const officer = petugasList.find((p) => p.id === mainKeg?.petugas_id || p.nip === mainKeg?.petugas_id) || currentUser;
+    const parentLap =
+      laporanList.find(
+        (l) =>
+          Number(l.nomor_rhk) === Number(parentRb?.no_rhk) &&
+          (l.petugas_id === officer.id || (officer.nip && l.petugas_id === officer.nip))
+      ) ||
+      laporanList.find(
+        (l) =>
+          Number(l.nomor_rhk) === Number(parentRb?.no_rhk) &&
+          (l.petugas_id === currentUser.id || (currentUser.nip && l.petugas_id === currentUser.nip))
+      ) ||
+      laporanList.find((l) => Number(l.nomor_rhk) === Number(parentRb?.no_rhk)) ||
+      null;
 
     return (
       <PrintReportView
