@@ -67,7 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             Laporan SKP
           </span>
           <span className="text-[10px] text-amber-400 font-mono uppercase tracking-wider block">
-            Versi 2.6 Online
+            Versi 2.6.1 Online
           </span>
         </div>
       </div>
@@ -262,7 +262,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span>Perubahan Aplikasi</span>
           </div>
           <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[9px] font-mono font-bold rounded-md border border-amber-500/30">
-            v2.6
+            v2.6.1
           </span>
         </button>
 
@@ -312,7 +312,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="p-4 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-between">
         <span>FireLink Sync</span>
-        <span className="font-mono text-[10px] text-amber-400">v2.6</span>
+        <span className="font-mono text-[10px] text-amber-400">v2.6.1</span>
       </div>
     </aside>
     </>
